@@ -224,6 +224,10 @@ __marimo__/
 # macOS
 .DS_Store
 
+# Superpowers (AI brainstorming/planning artifacts — local only)
+.superpowers/
+docs/superpowers/
+
 # Node / Frontend
 node_modules/
 *.env.local
