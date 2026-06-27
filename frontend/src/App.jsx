@@ -220,7 +220,7 @@ export default function App() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {lens === 'now' && !recovery && (
-              <Now tasks={nowTasks} onToggle={toggleCheck} onFellBehind={fellBehind} onOpenFeasibility={() => setModal('feasibility')} userName={userName} feasible={planData?.plan?.feasible} />
+              <Now tasks={nowTasks} onToggle={toggleCheck} onFellBehind={fellBehind} onOpenFeasibility={() => setModal('feasibility')} userName={userName} feasible={planData?.plan?.feasible} role={planData?.goal?.title ?? planData?.goals?.[0]?.title ?? ''} />
             )}
             {lens === 'now' && recovery && (
               <Recovery narration={narration} tasks={currentTasks} checks={checks}
