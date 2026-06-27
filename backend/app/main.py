@@ -131,14 +131,22 @@ def reshuffle(body: ReshuffleBody):
     profile = _profile_from(body.profile)
     goals = _goals_from(body.goals)
     tasks = _all_tasks(profile, goals)
-    # mark missed tasks; drop their importance slightly so the re-solve adapts
     missed = set(body.missed_task_ids)
     for t in tasks:
         if t.id in missed:
             t.status = Status.MISSED
-    result = assess(tasks, profile, goals, body.deadline_day)
+    result  = assess(tasks, profile, goals, body.deadline_day)
     summary = result.to_dict()
-    msg = narrate("I fell behind, reshuffle my week", summary)
+    # Build narration without an LLM call so the response is instant.
+    # The Recovery view already provides emotional context; this just states what moved.
+    n_at_risk = len(summary.get("at_risk", []))
+    if summary.get("tradeoff"):
+        msg = summary["tradeoff"]["reason"]
+    elif n_at_risk:
+        msg = (f"Rebuilt your week. {n_at_risk} lower-priority task(s) pushed to "
+               "the at-risk list so your highest-priority work stays protected.")
+    else:
+        msg = "Rebuilt your week — everything fits before your deadline."
     return {"plan": summary, "narration": msg,
             "tasks": [t.to_dict() for t in tasks]}
 
