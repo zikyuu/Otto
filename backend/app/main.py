@@ -17,8 +17,10 @@ from pathlib import Path
 
 import io
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.engine.gaps import derive_tasks
@@ -28,6 +30,8 @@ from app.llm.extract import parse_resume, parse_jd, narrate, direction_review
 from app.models import Goal, Profile, Skill, Status, Task, Wall
 
 DEMO = json.loads((Path(__file__).parent / "demo_data" / "demo.json").read_text())
+
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 app = FastAPI(title="Otto")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
@@ -144,3 +148,16 @@ def chat(body: ChatBody):
     goals = _goals_from(body.goals) if body.goals else []
     review = direction_review([], goals[0]) if goals else ""
     return {"narration": narrate(body.message, body.plan_summary), "review": review}
+
+@app.get("/{path:path}")
+def spa(path: str):
+    if path == "api" or path.startswith("api/"):
+        raise HTTPException(status_code=404)
+    if FRONTEND_DIST.exists():
+        file_path = FRONTEND_DIST / path if path else FRONTEND_DIST / "index.html"
+        if path and file_path.is_file():
+            return FileResponse(file_path)
+        index = FRONTEND_DIST / "index.html"
+        if index.exists():
+            return FileResponse(index)
+    raise HTTPException(status_code=404)
