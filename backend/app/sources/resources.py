@@ -28,6 +28,8 @@ def fetch_resources(skill: str, role: str) -> list[Resource]:
     api_key = os.environ.get("EXA_API_KEY")
     if not api_key:
         return []
+    if Exa is None:
+        return []
     try:
         client = Exa(api_key=api_key)
         queries = [

@@ -1,4 +1,7 @@
+from unittest.mock import MagicMock, patch
+
 from app.models import Resource
+from app.sources.resources import _classify_url, fetch_resources
 
 
 def test_resource_dataclass_fields():
@@ -11,11 +14,6 @@ def test_resource_dataclass_fields():
 def test_resource_dataclass_leetcode_type():
     r = Resource(title="Two Sum", url="https://leetcode.com/problems/two-sum/", type="leetcode")
     assert r.type == "leetcode"
-
-
-from unittest.mock import MagicMock, patch
-
-from app.sources.resources import _classify_url, fetch_resources
 
 
 def test_classify_url_leetcode():
@@ -69,7 +67,7 @@ def test_fetch_resources_caps_at_six(monkeypatch):
     with patch("app.sources.resources.Exa") as MockExa:
         MockExa.return_value.search_and_contents.return_value = mock_result
         result = fetch_resources("algorithms", "backend engineer")
-    assert len(result) <= 6
+    assert len(result) == 6
 
 
 def test_fetch_resources_returns_empty_on_exa_error(monkeypatch):
