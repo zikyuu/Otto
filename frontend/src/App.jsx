@@ -20,21 +20,22 @@ export default function App() {
   // ── auth ──────────────────────────────────────────────────────────────────
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [planLoading, setPlanLoading] = useState(false);
+  const [planLoading, setPlanLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
       setAuthLoading(false);
+      if (!data.session) setPlanLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) setPlanData(null);
+      if (!session) { setPlanData(null); setChecks({}); setPlanLoading(false); }
       setUser(session?.user ?? null);
     });
     return () => subscription.unsubscribe();
   }, []);
 
-  // On every login, sync plan from Supabase (keeps cross-device in sync)
+  // On every login, load plan from Supabase
   useEffect(() => {
     if (!user) return;
     setPlanLoading(true);
@@ -42,31 +43,24 @@ export default function App() {
       .then(r => r.json())
       .then(data => {
         if (data?.plan) {
-          if (!data.profile?.name) {
-            const cached = JSON.parse(localStorage.getItem('otto_plan') || 'null');
-            if (cached?.profile?.name) data.profile.name = cached.profile.name;
-          }
-          localStorage.setItem('otto_plan', JSON.stringify(data));
           setPlanData(data);
-          // Derive checks from DB task statuses (authoritative on login)
           const dbChecks = {};
           (data.tasks || []).forEach(t => { dbChecks[t.id] = t.status === 'done'; });
           setChecks(dbChecks);
-          localStorage.setItem('otto_checks', JSON.stringify(dbChecks));
         }
+        // No plan in DB → planData stays null → Setup shows (new user)
       })
       .catch(() => {})
       .finally(() => setPlanLoading(false));
   }, [user?.id]);
 
-  // ── plan data (from setup onboarding) ────────────────────────────────────
-  const [planData, setPlanData] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('otto_plan') ?? 'null'); } catch { return null; }
-  });
+  // ── plan data ─────────────────────────────────────────────────────────────
+  const [planData, setPlanData] = useState(null);
+  const [checks, setChecks] = useState({});
 
   function onSetupComplete(data) {
-    localStorage.setItem('otto_plan', JSON.stringify(data));
     setPlanData(data);
+    setChecks({});
   }
 
   // ── nav / view state ──────────────────────────────────────────────────────
@@ -77,20 +71,13 @@ export default function App() {
   const [sel, setSel] = useState(27);
   const [modal, setModal] = useState(null);
   const [pick, setPick] = useState(null);
-  const [checks, setChecks] = useState(() => {
-    try {
-      const saved = localStorage.getItem('otto_checks');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {};
-  });
   const [narration, setNarration] = useState('');
 
   function setLens(l) { setLensRaw(l); setGoal(null); setRecovery(false); }
+
   function toggleCheck(k) {
     setChecks(c => {
       const next = { ...c, [k]: !c[k] };
-      localStorage.setItem('otto_checks', JSON.stringify(next));
       fetch(`/api/tasks/${k}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -114,7 +101,7 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           profile: planData.profile,
-          goals: [planData.goal],
+          goals: apiGoals,
           missed_task_ids: missedIds,
         }),
       }).then(r => r.json());
@@ -124,21 +111,17 @@ export default function App() {
     } catch {}
   }
 
-  // Resolve current tasks + blocks (reshuffle overrides setup data)
   const currentTasks = liveTasks ?? planData?.tasks ?? [];
   const currentBlocks = liveBlocks ?? planData?.blocks ?? [];
   const currentWalls = planData?.profile?.walls ?? [];
-  // Support both old single-goal and new multi-goal shape
   const apiGoals = planData?.goals ?? (planData?.goal ? [planData.goal] : []);
 
   function _applyPlanUpdate(data) {
     if (!data?.plan) return;
-    localStorage.setItem('otto_plan', JSON.stringify(data));
     setPlanData(data);
     const dbChecks = {};
     (data.tasks || []).forEach(t => { dbChecks[t.id] = t.status === 'done'; });
     setChecks(dbChecks);
-    localStorage.setItem('otto_checks', JSON.stringify(dbChecks));
   }
 
   async function addGoal(jdText) {
@@ -161,7 +144,6 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('google') === 'connected') {
       window.history.replaceState({}, '', window.location.pathname);
-      // Fetch walls and rebuild plan with them
       if (user) {
         fetch(`/api/google/walls?user_id=${user.id}`)
           .then(r => r.json())
@@ -174,9 +156,7 @@ export default function App() {
   function handleWallsUpdate(newWalls) {
     if (!planData) return;
     const updated = { ...planData, profile: { ...planData.profile, walls: newWalls } };
-    localStorage.setItem('otto_plan', JSON.stringify(updated));
     setPlanData(updated);
-    // Rebuild plan with new walls so scheduler respects them
     fetch('/api/plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile: updated.profile, goals: apiGoals, user_id: user?.id ?? '' }),
@@ -202,7 +182,6 @@ export default function App() {
   if (!user) return <Login onLogin={setUser} />;
   if (!planData) return <Setup onComplete={onSetupComplete} userId={user.id} />;
 
-  // ── main app (original design) ────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 16px' }}>
       <div style={{
@@ -218,7 +197,9 @@ export default function App() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {lens === 'now' && !recovery && (
-              <Now tasks={nowTasks} onToggle={toggleCheck} onFellBehind={fellBehind} onOpenFeasibility={() => setModal('feasibility')} userName={userName} feasible={planData?.plan?.feasible} />
+              <Now tasks={nowTasks} onToggle={toggleCheck} onFellBehind={fellBehind}
+                onOpenFeasibility={() => setModal('feasibility')} userName={userName}
+                feasible={planData?.plan?.feasible} />
             )}
             {lens === 'now' && recovery && (
               <Recovery narration={narration} tasks={currentTasks} checks={checks}
@@ -235,8 +216,8 @@ export default function App() {
                 onAddGoal={addGoal} onDeleteGoal={deleteGoal} />
             )}
             {lens === 'goals' && goal && (
-              <GoalDetail goalId={goal} checks={checks} onToggleSub={toggleCheck} onClose={() => setGoal(null)}
-                apiGoals={apiGoals} apiTasks={currentTasks} />
+              <GoalDetail goalId={goal} checks={checks} onToggleSub={toggleCheck}
+                onClose={() => setGoal(null)} apiGoals={apiGoals} apiTasks={currentTasks} />
             )}
             {lens === 'stats' && (
               <Stats tasks={currentTasks} checks={checks} blocks={currentBlocks}
@@ -255,11 +236,7 @@ export default function App() {
                     setLens('now');
                   }
                 }}
-                onStartOver={() => {
-                  localStorage.removeItem('otto_plan');
-                  localStorage.removeItem('otto_checks');
-                  setPlanData(null);
-                }}
+                onStartOver={() => { setPlanData(null); setChecks({}); }}
               />
             )}
           </div>
@@ -275,7 +252,8 @@ export default function App() {
           />
         )}
         {modal === 'tradeoff' && (
-          <Tradeoff tradeoff={planData?.plan?.tradeoff} pick={pick} onPick={setPick} onClose={() => { setModal(null); setPick(null); }} />
+          <Tradeoff tradeoff={planData?.plan?.tradeoff} pick={pick} onPick={setPick}
+            onClose={() => { setModal(null); setPick(null); }} />
         )}
       </div>
     </div>

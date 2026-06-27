@@ -10,8 +10,6 @@ import { supabase } from '../lib/supabase.js';
 export default function Sidebar({ lens, setLens, userName, feasible }) {
   async function logout() {
     await supabase.auth.signOut();
-    localStorage.removeItem('otto_plan');
-    localStorage.removeItem('otto_checks');
   }
   return (
     <div style={{
