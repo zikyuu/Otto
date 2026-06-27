@@ -8,6 +8,7 @@ LLM endpoints are the ears/mouth only.
   POST /api/chat       plan+message       -> narration (+ maybe re-plan)
   GET  /api/health
   GET  /api/demo       -> the seeded demo payload (resume, jd, walls)
+  GET  /api/resources  skill+role       -> list of curated resources (Exa)
 """
 from __future__ import annotations
 
@@ -27,8 +28,6 @@ from app.engine.gaps import derive_tasks
 from app.engine.feasibility import assess
 from app.engine.scheduler import schedule
 from app.llm.extract import parse_resume, parse_jd, narrate, direction_review
-from dataclasses import asdict as _asdict
-
 from app.models import Goal, Profile, Skill, Status, Task, Wall
 from app.sources.resources import fetch_resources
 
@@ -100,7 +99,7 @@ def demo():
 
 @app.get("/api/resources")
 def get_resources(skill: str, role: str):
-    return [_asdict(r) for r in fetch_resources(skill, role)]
+    return [r.to_dict() for r in fetch_resources(skill, role)]
 
 @app.post("/api/profile")
 def profile(body: ResumeBody):
