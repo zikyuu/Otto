@@ -8,6 +8,8 @@ const QUOTES = [
   "Small steps, real momentum.",
 ];
 
+const TYPE_ICON = { leetcode: '🔗', video: '🎥', article: '📄', other: '🔗' };
+
 export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, userName, feasible, role }) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long' }) +
@@ -26,7 +28,10 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
   const [loadingRes, setLoadingRes] = useState(new Set());
 
   async function fetchResources(taskKey, skill) {
-    if (!skill) return;
+    if (!skill) {
+      setResources(prev => ({ ...prev, [taskKey]: [] }));
+      return;
+    }
     const cacheKey = `resources:${skill}:${role}`;
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
@@ -36,6 +41,7 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
     setLoadingRes(prev => { const s = new Set(prev); s.add(taskKey); return s; });
     try {
       const resp = await fetch(`/api/resources?skill=${encodeURIComponent(skill)}&role=${encodeURIComponent(role || '')}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       localStorage.setItem(cacheKey, JSON.stringify(data));
       setResources(prev => ({ ...prev, [taskKey]: data }));
@@ -47,16 +53,16 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
   }
 
   function toggleExpand(taskKey, skill) {
+    const isOpen = expanded.has(taskKey);
     setExpanded(prev => {
       const s = new Set(prev);
-      if (s.has(taskKey)) {
-        s.delete(taskKey);
-      } else {
-        s.add(taskKey);
-        if (!resources[taskKey]) fetchResources(taskKey, skill);
-      }
+      if (s.has(taskKey)) s.delete(taskKey);
+      else s.add(taskKey);
       return s;
     });
+    if (!isOpen && !resources[taskKey]) {
+      fetchResources(taskKey, skill);
+    }
   }
 
   return (
@@ -172,7 +178,6 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
             const isExpanded = expanded.has(t.k);
             const isLoading = loadingRes.has(t.k);
             const taskResources = resources[t.k] ?? [];
-            const typeIcon = { leetcode: '🔗', video: '🎥', article: '📄', other: '🔗' };
             return (
               <div key={t.k} style={{
                 background: '#fff', border: '1px solid #ECE3D4', borderRadius: 16,
@@ -214,9 +219,9 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
                     )}
                     {!isLoading && taskResources.length > 0 && (
                       <div style={{ paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {taskResources.map((r, i) => (
+                        {taskResources.map((r) => (
                           <a
-                            key={i}
+                            key={r.url}
                             href={r.url}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -227,7 +232,7 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
                               fontWeight: 600,
                             }}
                           >
-                            <span>{typeIcon[r.type] ?? '🔗'}</span>
+                            <span>{TYPE_ICON[r.type] ?? '🔗'}</span>
                             <span style={{ textDecoration: 'underline', textUnderlineOffset: 2 }}>{r.title}</span>
                           </a>
                         ))}
