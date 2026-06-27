@@ -1,0 +1,14 @@
+{
+  "resume_text": "Year 2 Computer Science student. Strong in Python and building REST APIs with FastAPI. Built a behavioural finance web app (React, FastAPI, PostgreSQL) and an agentic LLM system with tool use. Comfortable with SQL and database design. Some experience with testing. Looking for a backend / ML engineering internship.",
+  "demo_jd": "Backend Engineering Intern. We're looking for someone strong in data structures and algorithms, with solid system design fundamentals. You'll work with SQL databases and build production APIs in Python. Interviews focus on algorithmic problem-solving and system design. Application closes 11 July.",
+  "walls": [
+    { "day": 0, "start_min": 540, "end_min": 720, "label": "CS lecture" },
+    { "day": 0, "start_min": 1140, "end_min": 1230, "label": "Muay Thai" },
+    { "day": 1, "start_min": 600, "end_min": 780, "label": "Tutorial" },
+    { "day": 2, "start_min": 540, "end_min": 660, "label": "CS lecture" },
+    { "day": 2, "start_min": 1140, "end_min": 1230, "label": "Muay Thai" },
+    { "day": 3, "start_min": 600, "end_min": 720, "label": "Lab" },
+    { "day": 4, "start_min": 540, "end_min": 660, "label": "CS lecture" }
+  ],
+  "note": "Deliberate gap: resume has python/apis/sql but NOT data structures, algorithms, or system design — which the JD demands. That gap is the fuel for the roadmap and the 'you're missing the thing the interview tests' moment."
+}
