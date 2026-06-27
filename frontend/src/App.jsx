@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import WeekGrid from "./components/WeekGrid.jsx";
 import "./styles.css";
 
-const API = import.meta.env.VITE_API ?? "/api";
+const API = import.meta.env.VITE_API ?? "http://127.0.0.1:8770";
 const DEADLINE_DAY = 4; // Friday
 
 export default function App() {
