@@ -148,16 +148,19 @@ def chat(body: ChatBody):
     review = direction_review([], goals[0]) if goals else ""
     return {"narration": narrate(body.message, body.plan_summary), "review": review}
 
-# ---- SPA static file serving ---------------------------------------------
+
+# ---- serve React SPA (production) ----------------------------------------
+# Only mounts when the frontend has been built (dist/ exists).
+# API routes above always take priority.
 
 _DIST = Path(__file__).parent.parent.parent / "frontend" / "dist"
 
 if _DIST.exists():
     app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="assets")
 
-@app.get("/{path:path}")
-def spa_fallback(path: str):
-    candidate = _DIST / path
-    if candidate.is_file():
-        return FileResponse(str(candidate))
-    return FileResponse(str(_DIST / "index.html"))
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        candidate = _DIST / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_DIST / "index.html"))
