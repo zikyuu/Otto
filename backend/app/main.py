@@ -27,7 +27,10 @@ from app.engine.gaps import derive_tasks
 from app.engine.feasibility import assess
 from app.engine.scheduler import schedule
 from app.llm.extract import parse_resume, parse_jd, narrate, direction_review
+from dataclasses import asdict as _asdict
+
 from app.models import Goal, Profile, Skill, Status, Task, Wall
+from app.sources.resources import fetch_resources
 
 DEMO = json.loads((Path(__file__).parent / "demo_data" / "demo.json").read_text())
 
@@ -94,6 +97,10 @@ def health():
 @app.get("/api/demo")
 def demo():
     return DEMO
+
+@app.get("/api/resources")
+def get_resources(skill: str, role: str):
+    return [_asdict(r) for r in fetch_resources(skill, role)]
 
 @app.post("/api/profile")
 def profile(body: ResumeBody):
