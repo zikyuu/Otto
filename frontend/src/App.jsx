@@ -1,16 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from "react";
+import WeekGrid from "./components/WeekGrid.jsx";
+import "./styles.css";
 
-const API = import.meta.env.VITE_API ?? "";
-import './styles.css';
-
-import Sidebar from './components/Sidebar.jsx';
-import Now from './views/Now.jsx';
-import Recovery from './views/Recovery.jsx';
-import Calendar from './views/Calendar.jsx';
-import { GoalsList, GoalDetail } from './views/Goals.jsx';
-import Stats from './views/Stats.jsx';
-import Feasibility from './modals/Feasibility.jsx';
-import Tradeoff from './modals/Tradeoff.jsx';
+const API = import.meta.env.VITE_API ?? "/api";
+const DEADLINE_DAY = 4; // Friday
 
 export default function App() {
   const [demo, setDemo] = useState(null);
@@ -69,20 +62,36 @@ export default function App() {
       }).then((r) => r.json());
       setGoals([g]);
 
-export default function App() {
-  const [lens, setLensRaw] = useState('now');
-  const [recovery, setRecovery] = useState(false);
-  const [goal, setGoal] = useState(null);
-  const [calView, setCalView] = useState('month');
-  const [sel, setSel] = useState(27);
-  const [modal, setModal] = useState(null);
-  const [pick, setPick] = useState(null);
-  const [checks, setChecks] = useState(initChecks);
+      const res = await fetch(`${API}/api/plan`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile: p, goals: [g], deadline_day: DEADLINE_DAY }),
+      }).then((r) => r.json());
+      setPlan(res.plan);
+      setTasks(res.tasks);
+      setScreen("plan");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  function setLens(l) { setLensRaw(l); setGoal(null); setRecovery(false); }
-  function toggleCheck(k) { setChecks(c => ({ ...c, [k]: !c[k] })); }
+  async function markMissed(taskId) {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/reshuffle`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profile, goals, deadline_day: DEADLINE_DAY, missed_task_ids: [taskId],
+        }),
+      }).then((r) => r.json());
+      setPlan(res.plan);
+      setTasks(res.tasks);
+      setNarration(res.narration);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const tasks = NOW_TASKS.map(t => ({ ...t, checked: checks[t.k] }));
+  const onTrack = plan && plan.feasible && !plan.tradeoff;
 
   return (
     <div style={ui.page}>
@@ -125,21 +134,55 @@ export default function App() {
             {loading ? "Building…" : "Build my plan →"}
           </button>
         </div>
+      )}
 
-        {modal === 'feasibility' && (
-          <Feasibility
-            onChoose={() => setModal('tradeoff')}
-            onClose={() => setModal(null)}
-          />
-        )}
-        {modal === 'tradeoff' && (
-          <Tradeoff
-            pick={pick}
-            onPick={setPick}
-            onClose={() => { setModal(null); setPick(null); }}
-          />
-        )}
-      </div>
+      {screen === "plan" && plan && (
+        <div style={ui.planView}>
+          <div style={ui.statusRow}>
+            <div>
+              <div className="display" style={ui.goalTitle}>
+                {goals[0]?.title || "Your role"}
+              </div>
+              <div style={ui.gapline}>
+                Roadmap: {tasks.map((t) => t.skill_served).join(" · ") || "no gaps"}
+              </div>
+            </div>
+            <span style={{ ...ui.statusPill,
+              background: onTrack ? "var(--accent-soft)" : "var(--warn-soft)",
+              color: onTrack ? "var(--accent)" : "var(--warn)" }}>
+              ● {onTrack ? "On track" : plan.tradeoff ? "Choose one" : "At risk"}
+            </span>
+          </div>
+
+          <WeekGrid walls={walls} blocks={plan.blocks} tasks={tasks}
+            deadlineDay={DEADLINE_DAY} />
+
+          {plan.tradeoff && (
+            <div style={ui.tradeoff}>
+              <div style={ui.tradeoffReason}>{plan.tradeoff.reason}</div>
+              <div style={ui.tradeoffOpts}>
+                {plan.tradeoff.options.map((o) => (
+                  <button key={o.goal_id} style={ui.tradeoffBtn}>{o.label}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {narration && <div style={ui.narration}>◇ {narration}</div>}
+
+          <div style={ui.taskList}>
+            <div style={ui.taskListHead}>This week's tasks — tap one you didn't finish</div>
+            {tasks.map((t) => (
+              <button key={t.id} onClick={() => markMissed(t.id)} style={ui.taskRow}>
+                <span>{t.title}</span>
+                <span style={ui.taskMeta} className="mono">{t.est_minutes}m</span>
+              </button>
+            ))}
+          </div>
+
+          <button onClick={() => setScreen("setup")} style={{ marginTop: 4 }}>← Edit inputs</button>
+        </div>
+      )}
     </div>
   );
 }
