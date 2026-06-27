@@ -13,7 +13,11 @@ import json
 import os
 import re
 
-from app.models import Goal, Profile, Skill
+from dotenv import load_dotenv
+
+from app.models import Goal, Profile, Skill, Task
+
+load_dotenv()
 
 try:
     from openai import OpenAI
@@ -85,6 +89,41 @@ def parse_jd(jd_text: str, goal_id: str = "job1", title: str = "") -> Goal:
             pass
     return Goal(id=goal_id, title=title or "Role", jd_text=jd_text,
                 required_skills=_kw_extract(jd_text), fit=0.8)
+
+
+def direction_review(tasks: list[Task], goal: Goal) -> str:
+    """Compare current task list against live Exa signal; return a grounded one-sentence critique."""
+    from app.engine.gaps import _exa_skills  # local import — gaps depends on models, not extract
+    exa_skills = _exa_skills(goal)
+    if not exa_skills:
+        return ""  # no signal available; caller should skip display
+    current = {t.skill_served.lower() for t in tasks}
+    missing = [s for s in exa_skills if s not in current]
+    if not missing:
+        return f"Your plan covers the key skills Exa found for {goal.title}. You're on track."
+    if _client:
+        try:
+            r = _client.chat.completions.create(
+                model=MODEL, temperature=0.3,
+                messages=[
+                    {"role": "system", "content":
+                     "You are a direct, calm career coach. Given what a role actually tests "
+                     "(from live interview signal) and what the user is currently studying, "
+                     "return ONE sentence naming the most important gap. "
+                     "Be specific — name the skill. No filler, no encouragement, no guilt."},
+                    {"role": "user", "content":
+                     f"Role: {goal.title}\n"
+                     f"Live signal shows this role tests: {', '.join(exa_skills)}\n"
+                     f"User is currently studying: {', '.join(current) or 'nothing yet'}\n"
+                     f"Missing from their plan: {', '.join(missing)}"},
+                ],
+            )
+            return r.choices[0].message.content.strip()
+        except Exception:
+            pass
+    top = missing[:3]
+    return (f"Exa signal shows {goal.title} interviews on {', '.join(top)} "
+            f"— not covered in your current plan.")
 
 
 def narrate(message: str, plan_summary: dict) -> str:
