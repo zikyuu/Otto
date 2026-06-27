@@ -1,15 +1,31 @@
 # Otto — Build2026 game plan
 
-Team: **Nicha · Shianne · Melden · Rayner**
+The engine is built, tested, and live on Exa. Today is about making the two demo
+moments land: wired to real keys, deployed, rehearsed. Stretch goals come
+**after** the Hour-8 gate.
 
-The engine is already built and tested. Tomorrow is about making the demo land:
-the two moments that win the room, wired to real LLM keys, deployed, rehearsed.
-Stretch goals come **after** the demo is locked — see the Hour-8 gate.
+> One-line pitch: *Resume + job → live interview signal → roadmap that fits your
+> real week → honest reshuffle when you fall behind. When you're behind, Otto
+> comes to you.*
 
-> One-line pitch: *'Sup tells you which jobs to chase and what they require;
-> Otto makes sure you chase them with the right work, at a pace you can sustain
-> — and when you fall behind, it tells you the truth instead of pretending you
-> can catch up.*
+---
+
+## What's already done — do not touch
+
+| File | Status |
+|------|--------|
+| `backend/app/models.py` | ✅ locked — full data model |
+| `backend/app/engine/scheduler.py` | ✅ greedy weighted scheduler + prereq ordering |
+| `backend/app/engine/feasibility.py` | ✅ feasibility check + forced tradeoff |
+| `backend/app/engine/gaps.py` | ✅ live Exa lookup + static fallback · 5 tests passing |
+| `backend/app/llm/extract.py` | ✅ OpenAI resume/JD parsing + narration (gpt-4o-mini) |
+| `backend/app/sources/adapters.py` | ✅ swappable adapters · Google Calendar stubbed |
+| `backend/app/main.py` | ✅ all FastAPI endpoints wired |
+| `backend/app/demo_data/demo.json` | ✅ deliberate gap — DS&A + system design missing |
+| `backend/tests/test_engine.py` | ✅ 5 tests · all passing |
+
+Engine tests must pass after any engine change. LLM never touches
+`/api/plan` or `/api/reshuffle` — engine only, deterministic.
 
 ---
 
@@ -17,112 +33,173 @@ Stretch goals come **after** the demo is locked — see the Hour-8 gate.
 
 | Person | Role | Owns |
 |--------|------|------|
-| **A** | Integration & correctness | API seam, LLM-extraction correctness, deploy, keeps `main` green |
-| **B** | Frontend — the two demo moments | re-solve animation + tradeoff interaction (the money moments) |
-| **C** | Frontend — everything else + polish | setup screen, wall editor, chat UI, responsive, visual polish |
-| **D** | LLM tuning + demo craft | prompt tuning, demo script, rehearsal, deploy support |
+| **A** | Integration & deploy | LLM seam correctness, direction review, deploy, keeps `main` green |
+| **B** | Frontend — demo moments | re-solve animation + tradeoff interaction |
+| **C** | Frontend — setup & polish | wall editor, chat UI, responsive, visual polish |
+| **D** | LLM tuning + Zo + demo | Zo Telegram agent, prompt tuning, demo script, rehearsal |
 
 ---
 
-## Timeline (gated)
+## Judging criteria (weight every decision against this)
 
-### Hour 0–1 · Setup together
-- [ ] All four: clone, run backend + frontend locally, confirm you can hit the API.
-      (Do this together — kills "works on my machine" at hour six.)
-- [ ] A: protect `main`, create issues (below), assign, add everyone as collaborators.
-- [ ] All: **agree the demo JD + résumé now** so nobody builds against a moving target.
+| Criterion | Weight |
+|-----------|--------|
+| Innovation & creative use of sponsor tech | 30% |
+| Proof of Work / Functionality | 25% |
+| Problem fit & Market Value | 25% |
+| Design, Craft & Taste | 20% |
 
-### Hour 1–4 · Parallel build (no blocking)
-- [ ] **A:** wire `OPENAI_API_KEY`; test `parse_resume`/`parse_jd` on the real
-      demo JD; fix the vocabulary seam (JD skills must match `gaps.py` names —
-      silent-breakage spot). Confirm full flow on real LLM, not fallback.
-- [ ] **B:** re-solve animation — blocks slide smoothly to new positions on
-      reshuffle. Hardest piece; start fresh-brained.
-- [ ] **C:** wall editor on setup screen (add/remove fixed blocks live) + visual polish.
-- [ ] **D:** tune narration tone (calm, names what moved, no guilt); draft demo script.
+**Implication:** the Exa + Zo moments are the 30% — make them visible in the
+demo. The engine re-computing live is the 25% proof-of-work — judges can poke
+it. The two demo moments cover everything else.
 
-### ⛳ Hour 4 · Checkpoint #1 (15 min, all)
-*"Does the spine work end-to-end with real keys?"* If the LLM seam is shaky,
-A + D swarm it before anything else. A broken roadmap kills the demo.
+---
 
-### Hour 4–8 · The two demo moments get real
-- [ ] **B:** tradeoff interaction — "choose one" commits, drops the other
-      goal's tasks, re-solves cleanly. Demo moment #2 fully working.
-- [ ] **C:** chat UI polish + mobile/responsive + empty & error states.
-- [ ] **A:** deploy to a live URL (backend Railway/Render, frontend Vercel).
-      Deploy early — it flushes env bugs out now, not at hour 11.
-- [ ] **D:** first full rehearsal against the real app; note what's clunky.
+## Priority order
 
-### 🚦 Hour 8 · Checkpoint #2 — THE GATE (all, be honest)
-*"Is the demo locked?"* = both moments work + deployed + clean start-to-finish run.
-- **YES →** proceed to polish, then stretch.
-- **NO →** everyone converges on closing the gap. **No stretch goals until this is YES.**
+### 1. Re-solve animation — B · `feat/resolve-animation`
+File: `frontend/src/components/WeekGrid.jsx`
+
+Blocks slide smoothly to new positions when the plan recomputes. Stagger the
+motion so blocks move in sequence; briefly highlight moved blocks in a lighter
+teal before settling to `var(--accent)`. This is the signature demo moment —
+spend the boldness here and keep everything else quiet.
+
+### 2. Tradeoff interaction — B · `feat/tradeoff-interaction`
+File: `frontend/src/App.jsx`
+
+The amber tradeoff card renders but does nothing. Wire "choose one": drop the
+other goal's tasks from state, re-call `/api/reshuffle`, rebuild the plan.
+Amber resolves to calm green once rebuilt.
+
+### 3. Zo Telegram alert — D · `feat/zo-telegram`
+New file: `backend/zo_agent.py`
+
+A script that runs on Zo on a schedule. Checks the current plan's feasibility;
+when a deadline is close or the user is behind, fires a Telegram message with
+the one best next action and an offer to reshuffle. This is the "Otto comes to
+you" moment — mid-demo, a Telegram ping arrives showing Otto catching a missed
+deadline live. Zo LLM access TBD; wire as an optional layer once the API shape
+is known. For now: Zo = hosting + Telegram delivery only.
+
+### 4. LLM direction review — A · `feat/direction-review`
+File: `backend/app/llm/extract.py`
+
+Add `direction_review(tasks, goal)`. Compares the user's current task list
+against the Exa-retrieved skill signal and returns a grounded critique:
+*"You're grinding syntax — this role interviews on system design. Shift focus."*
+Every critique must cite the Exa signal, never vibes.
+
+### 5. Wall editor — C · `feat/wall-editor`
+File: `frontend/src/App.jsx` setup screen
+
+Let the user add/remove fixed blocks (day, start, end, label) live in the UI
+instead of only loading from demo data.
+
+### 6. Chat UI polish — C · `feat/chat-polish`
+File: `frontend/src/App.jsx`
+
+Message history, clear input, calm narration style. Already wired to
+`/api/chat` — this is purely UI.
+
+### 7. Deploy — A · `feat/deploy`
+Backend → Railway or Render. Frontend → Vercel. Set `OPENAI_API_KEY` and
+`EXA_API_KEY` as env vars on the host. **Do this by hour 4** — env bugs must
+surface now, not at hour 11.
+
+### 8. Google Calendar sync — stretch · `feat/calendar-sync`
+File: `backend/app/sources/adapters.py`
+
+Implement `GoogleCalendarSource.walls()`. Read-only, OAuth, map busy-blocks to
+`Wall[]`. Only after the Hour-8 gate.
+
+---
+
+## Timeline
+
+### Hour 0–1 · Orient together
+- [ ] All four: clone, run backend + frontend locally, hit `/api/health`.
+- [ ] A: protect `main`, create branches, assign.
+- [ ] All: confirm demo JD + résumé (already in `demo.json`).
+
+### Hour 1–4 · Parallel build
+- [ ] **A:** confirm `parse_jd` output skills match `gaps.py` vocabulary
+      (normalization seam — the silent-breakage spot). Start deploy config.
+- [ ] **B:** re-solve animation. Hardest piece; start fresh-brained.
+- [ ] **C:** wall editor on setup screen.
+- [ ] **D:** Zo Telegram agent draft. Tune narration tone.
+
+### ⛳ Hour 4 · Checkpoint #1 (15 min, all four)
+*"Does the spine work end-to-end with real keys?"*
+If the LLM seam is shaky, A + D swarm it before anything else.
+
+### Hour 4–8 · Demo moments get real
+- [ ] **B:** tradeoff interaction — choose one, drop other goal's tasks,
+      re-solve, amber → green.
+- [ ] **C:** chat UI polish + responsive + empty/error states.
+- [ ] **A:** deploy to live URL. Direction review wired end-to-end.
+- [ ] **D:** Zo Telegram agent running on Zo. First full rehearsal.
+
+### 🚦 Hour 8 · THE GATE (all four, be honest)
+*"Is the demo locked?"* = both moments work end-to-end + deployed + clean
+start-to-finish run.
+- **YES →** record screen-capture fallback, then polish + stretch.
+- **NO →** everyone converges. **No stretch goals until this is YES.**
+
+**Record a clean screen-capture of a full demo run before leaving this gate.**
+That recording is the stage fallback if anything breaks during judging.
 
 ### Hour 8–10 · Polish + rehearse (gate passed only)
-- [ ] All: rehearse out loud, twice. Fix the jank rehearsal exposes.
-- [ ] D: lock the pitch + the "'Sup is the fuel" framing.
-- [ ] A: record a clean screen-capture of a full run as a **stage fallback**.
+- [ ] All: rehearse out loud, twice. Fix what rehearsal exposes.
+- [ ] D: lock pitch + "'Sup is the fuel" framing.
+- [ ] A: confirm fallback recording is crisp.
 
 ### Hour 10–11 · ONE stretch goal (everything above done)
-Pick **one**, whoever's freest, time-boxed, drop without regret if it fights:
-- [ ] Calendar read-only sync (`GoogleCalendarSource` stub) — most demo-relevant.
-- [ ] Exa job-match gesture (`ExaJobSource` stub) — flashier, more off-thesis.
-- [ ] Engine: constraint-solver swap — only if a technical judge is likely & UI flawless.
+Pick one, hard time-box, drop without regret if it fights:
+- [ ] Google Calendar sync — most demo-relevant.
+- [ ] Exa job-match gesture (`ExaJobSource`) — flashier, more off-thesis.
 
 ### Hour 11–12 · Freeze
-- [ ] Code freeze, no new features.
-- [ ] Final run-through, charge devices, test on venue wifi, confirm fallback recording.
+- [ ] Code freeze. Final run-through. Charge devices. Test on venue wifi.
 
 ---
 
 ## Two sacred rules
-1. **The Hour-8 gate is law.** Stretch + engine improvements live after it, never before.
-2. **A keeps `main` green.** Small PRs, fast review, protected branch.
+
+1. **The Hour-8 gate is law.** No stretch goals until both demo moments work
+   end-to-end and the app is deployed.
+2. **A keeps `main` green.** Small PRs, one quick review, protected branch.
 
 ---
 
-## GitHub workflow
+## GitHub branches
 
-**One repo. `main` protected (Settings → Branches → require PR before merge).
-Feature branches, small PRs, no forks.**
-
-### Branches
 ```
-main                      always-deployable; nobody pushes direct
-feat/llm-wiring           A   — real key + extraction correctness
-feat/resolve-animation    B — the signature re-solve motion
-feat/tradeoff-interaction B — choose-one commits & re-solves
-feat/wall-editor          C  — setup screen wall add/remove
-feat/polish               C  — chat UI, responsive, states
-feat/narration-tuning     D  — prompt tone
-feat/deploy               A   — hosting config
-feat/calendar-sync        (stretch) read-only Google Calendar adapter
-feat/exa-match            (stretch) Exa job-match adapter
+main                        protected — nobody pushes direct
+feat/resolve-animation      B — signature re-solve motion
+feat/tradeoff-interaction   B — choose-one commits & re-solves
+feat/zo-telegram            D — Zo Telegram alert agent
+feat/direction-review       A — LLM grounded critique via Exa signal
+feat/wall-editor            C — setup screen wall add/remove
+feat/chat-polish            C — chat UI, responsive, states
+feat/deploy                 A — hosting config
+feat/calendar-sync          (stretch) Google Calendar read-only
 ```
 
 Flow: branch off `main` → commit small → PR → one quick review → merge.
-Rebase/pull `main` before opening a PR to avoid conflicts.
-
-### Issues to create (Hour 0)
-Paste each as an issue; labels in [brackets]; assignee in (parens).
-
-1. [llm] Wire OPENAI_API_KEY + fix JD↔gaps vocabulary seam (A)
-2. [llm] Narration tone: calm, names what moved, no guilt (D)
-3. [frontend] Re-solve signature animation (B)
-4. [frontend] Tradeoff: choose-one commits + re-solves (B)
-5. [frontend] Setup screen wall editor (C)
-6. [frontend] Chat UI + responsive + empty/error states (C)
-7. [infra] Deploy backend + frontend to live URLs (A)
-8. [demo] Write + rehearse demo script & pitch (D)
-9. [demo] Record stage-fallback screen capture (A)
-10. [stretch] Google Calendar read-only sync (unassigned)
-11. [stretch] Exa job-match gesture (unassigned)
-12. [stretch] Engine: constraint-solver swap (unassigned)
+Rebase before opening a PR.
 
 ---
 
 ## The two demo moments (everything serves these)
-1. **Roadmap lands in the week** — tasks derived from the real JD↔résumé gap,
-   scheduled around real commitments. *"It scheduled, not just listed."*
-2. **Fall behind → honest re-solve** — recompute + the forced "choose one"
-   tradeoff + calm rebuild. *"It told me the truth instead of pretending."*
+
+**Moment 1 — the roadmap lands**
+User pastes JD → Exa retrieves live interview signal → roadmap derives from
+real gaps → blocks land in the week grid with a smooth staggered animation.
+*"It scheduled, not just listed — and it knew what the interview actually tests."*
+
+**Moment 2 — Otto comes to you**
+User marks a task missed → feasibility check fires → Zo sends a Telegram ping
+with the best next action → user reshuffles → amber tradeoff if infeasible →
+blocks re-animate → calm green rebuild.
+*"It told me the truth instead of pretending I could catch up."*

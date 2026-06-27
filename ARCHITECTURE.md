@@ -1,229 +1,247 @@
-# Otto — architecture & UI plan
+# Otto — architecture
 
-A to-do list that builds itself from the job you want, and re-solves itself
-when life gets in the way — using a real scheduling engine, not just an LLM.
+A job-application planner that builds itself from the role you want, fits into
+your real week, and reshuffles honestly when you fall behind — using a real
+scheduling engine, not just an LLM.
 
-> One line: resume + job → learning roadmap → fitted into your real week →
-> honestly rebuilt when you fall behind.
+> One line: resume + job → live interview signal → learning roadmap → fitted
+> into your real week → honestly rebuilt when you fall behind.
 
 ---
 
 ## 1. The thesis (what makes this not an LLM wrapper)
 
-The **brain is a deterministic scheduling engine.** The LLM is only the
-*ears* (resume + JD → structured tasks) and the *mouth* (explaining what the
-engine decided). When a judge pokes it — "add another deadline" — the engine
-**recomputes and shows its work**, which a wrapper cannot do.
+The **brain is a deterministic scheduling engine.** The LLM is only the *ears*
+(resume + JD → structured tasks) and the *mouth* (explaining what the engine
+decided). **Exa** is the *signal layer* — it retrieves live interview prep
+content so the roadmap reflects what roles actually test, not a static guess.
+**Zo** is the *reach layer* — it runs the background feasibility check and
+delivers Telegram alerts so Otto comes to the user, not the other way around.
 
 ```
-   LLM (ears)            ENGINE (brain)              LLM (mouth)
- resume + JD  ──►  scheduler + feasibility  ──►  plain-English narration
- → structured       (constraint solver,          of what moved & why
-   tasks            real pace, downscoping)
+   LLM (ears)         EXA (signal)          ENGINE (brain)        LLM (mouth)
+ resume + JD  ──►  live interview  ──►  scheduler +  ──►  plain-English
+ → structured       signal for role       feasibility       narration of
+   skills           → enriched skill      (constraint        what moved
+                    set for roadmap       solver,            and why
+                                          deterministic)
+
+                                              │
+                                           ZO (reach)
+                                    background agent + Telegram
+                                    "your deadline is tomorrow —
+                                     here's the one thing to do"
 ```
 
-Everything below protects that inversion: the LLM never touches the
-scheduling math.
+The LLM never touches `/api/plan` or `/api/reshuffle`. Engine endpoints are
+deterministic, re-runnable in <50ms, and work with no API key.
 
 ---
 
-## 2. The pipeline (five stages)
+## 2. Confirmed stack
 
-1. **Read (LLM).** Resume → structured skill profile. JD → required skills +
-   weighted prep tasks. NER-style extraction; your wheelhouse.
-2. **Derive gaps (engine).** Compare role's required skills vs. profile →
-   the set of tasks that actually close the gap, each tagged with the skill
-   it serves and an estimated time cost.
-3. **Schedule (engine — THE STAR).** Constraint solver places weighted tasks
-   into real free hours, around fixed walls, working back from the hard
-   deadline. Deterministic. Re-runnable in <50ms.
-4. **Feasibility (engine).** Weighs remaining work against observed pace. If
-   the plan can't close, it doesn't cram — it surfaces a forced tradeoff.
-5. **Reshuffle + narrate (engine + LLM).** User says "I'm behind" → engine
-   re-solves and downscopes → LLM explains the new plan in one calm message.
+| Layer | Technology | Role | Status |
+|-------|-----------|------|--------|
+| **Engine** | Python, pure stdlib | Scheduler + feasibility + gap derivation | ✅ built + tested |
+| **LLM ears/mouth** | OpenAI gpt-4o-mini | Resume/JD parsing, narration, direction review | ✅ key set, credits available |
+| **Signal** | Exa | Live interview prep retrieval in `gaps.py` | ✅ key set, wired, working |
+| **Reach** | Zo Computer | Hosting + scheduled Telegram alerts | Zo LLM access TBD — wire as optional layer once API shape known; for now Zo = hosting + Telegram only |
+| **API** | FastAPI | HTTP layer | ✅ built |
+| **Frontend** | React + Vite | Week grid, setup screen, chat | ✅ scaffolded |
+| **Calendar** | Google Calendar | Read-only wall import | Stubbed in `adapters.py` — stretch goal |
 
 ---
 
-## 3. The engine, specified (build this FIRST)
+## 3. The pipeline (five stages)
 
-### 3.1 The scheduling problem
-Given:
-- `tasks[]` — each with `est_minutes`, `importance` (weight), `skill_served`,
-  and optional `prereq_ids[]` (can't schedule "system design" before "data
-  structures").
-- `walls[]` — blocked time (class, gym, 9–5). The scheduler must not overlap.
-- `free_hours` — per-day capacity (derived from walls + waking window).
-- `deadline` — hard; tasks serving the goal must land before it.
+1. **Read (LLM + Exa).** Resume → structured skill profile via `parse_resume`.
+   JD → required skills via `parse_jd`. Skills must come out lowercase and match
+   the `gaps.py` vocabulary (`"data structures"`, `"system design"`, `"sql"`,
+   etc.) — this normalization is enforced in the `parse_jd` system prompt.
 
-Produce: an ordered assignment of tasks → time blocks that (a) respects walls,
-prereqs, and the deadline, and (b) maximises total `importance` placed when
-not everything fits.
+2. **Derive gaps (engine + Exa).** `derive_tasks(goal, profile)` in `gaps.py`
+   compares the role's required skills against the profile. **Exa is now central
+   here:** 2–3 searches (`"{role} interview prep skills 2026"`, `"what to study"`,
+   `"leetcode patterns"`) retrieve live interview signal; skill mentions are
+   extracted via vocabulary matching and merged with `goal.required_skills`
+   (deduped, lowercase). `SKILL_TASKS` is the fallback for time estimates and
+   prereq chains when `EXA_API_KEY` is absent or Exa returns nothing.
 
-### 3.2 The algorithm (finishable version)
-A **greedy weighted scheduler with prerequisite ordering** — not full ILP,
-which is over-scope for 12h:
-1. Topologically sort tasks by prereqs (drop cycles defensively).
-2. Sort the ready set by `importance / est_minutes` (value density).
-3. Walk days from now → deadline, fill each day's free blocks with the
-   highest-density ready task that fits; mark its skill satisfied so
-   dependents unlock.
-4. Tasks that don't fit before the deadline land in an **"at risk"** bucket —
-   this bucket is what drives the feasibility warning.
+3. **Schedule (engine).** `schedule(tasks, profile, deadline_day)` in
+   `scheduler.py`. Greedy weighted scheduler with prereq ordering. Topological
+   sort → value-density sort → fill days from now to deadline. Tasks that don't
+   fit land in the `at_risk` bucket. Deterministic, <50ms.
 
-This is real, defensible optimization a judge can stress-test, and it
-recomputes instantly on any input change. (Stretch: swap the greedy core for
-a proper constraint solver if time allows — the interface stays identical.)
+4. **Feasibility (engine).** `assess(tasks, profile, goals, deadline_day)` in
+   `feasibility.py`. `effective_capacity = nominal_free_hours × velocity`. If
+   required work exceeds capacity before the deadline, engine computes a minimal
+   cut and surfaces a forced tradeoff: *"Fully prep the onsite OR apply to 3
+   roles closing Friday — not both at your real pace. Which?"*
 
-### 3.3 Feasibility + forced tradeoff
-- `velocity` = rolling completion rate from `CompletionEvent`s
-  (planned_minutes vs. actually-done). Cold start: seed a believable history.
-- `effective_capacity = nominal_free_hours * velocity`.
-- If `required_minutes_before_deadline > effective_capacity` → infeasible.
-  Engine computes the **minimal cut**: the smallest set of goals/tasks to drop
-  to make it feasible, and surfaces it as a choice:
-  *"Fully prep Thursday's onsite OR apply to 3 roles closing Friday — not
-  both at your real pace. Which?"*
-
-### 3.4 Downscoping (the calm recovery)
-Each task carries a `full` and a `lite` variant (e.g. 60-min deep practice vs.
-10-min review). When behind, the engine swaps `full`→`lite` for lower-priority
-tasks before it drops anything, protecting momentum and what's closing soonest.
+5. **Reshuffle + narrate (engine + LLM).** `/api/reshuffle` re-derives tasks,
+   marks missed ones, re-runs assess. `narrate()` explains the new plan in 2–3
+   calm sentences naming what moved and why. Direction review (coming) will
+   compare the new task list against Exa signal and return a grounded critique.
 
 ---
 
-## 4. Data model (the spine — lock this tonight)
+## 4. Data model (locked — do not change)
 
 ```
-Skill         { id, name, proficiency 0-3 }
-Profile       { skills[], free_hours_per_day, walls[] }
-Wall          { day, start, end, label }           # from ScheduleSource
-Goal (job)    { id, title, jd_text, close_date, required_skills[], fit }
-Task          { id, title, skill_served, est_minutes,
-                importance, prereq_ids[], status,
-                full_minutes, lite_minutes, scheduled_block? }
-Block         { day, start, end, task_id }          # scheduler output
+Skill         { id, name, proficiency: 0–3 }
+Profile       { skills[], free_hours_per_day, walls[], velocity: 0–1 }
+Wall          { day: 0–6, start_min, end_min, label }
+Goal          { id, title, jd_text, close_date, required_skills[], fit: 0–1 }
+Task          { id, title, skill_served, goal_id, importance,
+                full_minutes, lite_minutes, prereq_ids[], status }
+Block         { day, start_min, end_min, task_id, lite: bool }
+Plan          { blocks[], at_risk[], feasible, tradeoff? }
 CompletionEvent { task_id, planned_minutes, done: bool, ts }
 ```
 
-### Two swappable adapters (same discipline as before)
-- **ScheduleSource** → emits `Wall[]`. `ManualSource` (works tomorrow) |
-  `GoogleCalendarSource` (stretch, read-only, drops in here, no rewrite).
-- **JobSource** → emits `Goal`. `PasteJDSource` (works tomorrow) |
-  `ExaJobSource` (optional light "matching" gesture, time-boxed).
-
-The engine reads only `Wall[]` and `Goal` — it never knows which adapter
-produced them. That's the whole "integrations are next" story, kept honest.
+Skill names throughout the system are **lowercase and clean** (`"system design"`,
+not `"System Design"` or `"SD"`). The `parse_jd` prompt enforces this at the
+boundary; `gaps.py` normalizes on input as a second defence.
 
 ---
 
-## 5. API surface (FastAPI)
+## 5. Key file map
 
 ```
-POST /api/profile        body: resume_text        → Profile (LLM parse)
-POST /api/goal           body: jd_text            → Goal   (LLM parse)
-POST /api/plan           body: {profile, goals[], walls[]} → {blocks[], at_risk[], feasible, tradeoff?}
-POST /api/reshuffle      body: {plan, completed[], missed[]} → {blocks[], narration}
-POST /api/chat           body: {plan, message}    → {narration, maybe re-plan}
+backend/
+  app/
+    models.py                 ← data model (locked)
+    engine/
+      gaps.py                 ← gap derivation + Exa signal retrieval
+      scheduler.py            ← greedy weighted scheduler (locked)
+      feasibility.py          ← feasibility + tradeoff (locked)
+    llm/
+      extract.py              ← parse_resume, parse_jd, narrate, direction_review (coming)
+    sources/
+      adapters.py             ← ManualSource, GoogleCalendarSource (stub), PasteJDSource, ExaJobSource (stub)
+    main.py                   ← FastAPI endpoints
+    demo_data/demo.json       ← deliberate skill gap (DS&A + system design missing)
+  tests/
+    test_engine.py            ← 5 tests · must pass after any engine change
+  zo_agent.py                 ← (coming) Zo background agent + Telegram alerts
+
+frontend/
+  src/
+    App.jsx                   ← main app + tradeoff interaction (to wire)
+    components/WeekGrid.jsx   ← week grid + re-solve animation (to finish)
+    styles.css                ← design tokens (locked)
+```
+
+---
+
+## 6. API surface (FastAPI)
+
+```
+POST /api/profile     resume_text              → Profile (LLM parse)
+POST /api/goal        jd_text, goal_id         → Goal   (LLM parse)
+POST /api/plan        profile, goals[], walls  → Plan + tasks[]
+POST /api/reshuffle   profile, goals, missed[] → Plan + narration + tasks[]
+POST /api/chat        message, plan_summary    → narration
 GET  /api/health
+GET  /api/demo                                 → seeded demo payload
 ```
 
-`/api/plan` and `/api/reshuffle` are pure engine (fast, deterministic).
-`/api/profile`, `/api/goal`, and the narration in `/api/chat` are the only
-LLM calls. Engine endpoints work with NO API key — same safety net as before.
+`/api/plan` and `/api/reshuffle` are **pure engine** (no LLM, deterministic).
+`/api/profile`, `/api/goal`, and `/api/chat` are the only LLM calls.
 
 ---
 
-## 6. UI plan
+## 7. UI — design tokens and the two demo moments
 
-### 6.1 Visual direction (deliberate, not the cream-serif default)
-**Concept: "the week as a workbench."** The schedule is the hero — a real
-week grid where roadmap tasks visibly *land* in your free time. The emotional
-beat is watching blocks rearrange when you fall behind.
-
-- **Palette** — not warm-cream-and-terracotta. A cool, focused "deep-work"
-  set:
-  - `--ink: #1A1D24` (near-black text)
-  - `--paper: #F2F4F3` (cool off-white bg)
-  - `--surface: #FFFFFF` (cards)
-  - `--accent: #2F6F62` (deep teal — "on track", primary)
-  - `--warn: #C7682E` (burnt amber — "at risk / choose", used ONLY for the
-    feasibility moment so it carries real weight)
-  - `--line: #DCE0DE` (hairline borders)
-- **Type** — display: a confident grotesque (e.g. *Space Grotesk*) for
-  headers and the week-grid day labels; body: *Inter*; data/time labels:
-  a mono (*IBM Plex Mono*) so the schedule reads like a real planner.
-- **Signature** — the **re-solve animation**: when you mark a task missed,
-  blocks visibly slide/recompute into their new positions. That motion *is*
-  the product — it's the one thing they remember, so spend the boldness here
-  and keep everything else quiet.
-- **Restraint** — amber appears nowhere except the feasibility/tradeoff
-  moment, so when the week turns amber it means something.
-
-### 6.2 Screens (4, in build priority)
-
+### Palette (locked)
 ```
-┌─ SCREEN 1 · Setup ────────────────────────────────┐
-│  Upload résumé  [drop / paste]                     │
-│  Add a job      [paste JD ▸]   (or pick sample)    │
-│  Your week      [+ class] [+ gym] [+ block]        │
-│  Hours free/day [ ███░░ 3h ]                       │
-│                              [ Build my plan → ]   │
-└────────────────────────────────────────────────────┘
-
-┌─ SCREEN 2 · The Plan (THE HERO) ──────────────────┐
-│  Goal: Backend Intern @ X · closes Fri 11 Jul      │
-│  ┌─────────────────────────────────────────────┐  │
-│  │  MON   TUE   WED   THU   FRI   (week grid)   │  │
-│  │  ▓class ░    ▓gym  ░     ░                    │  │
-│  │  [DS&A] [Sys] ...  tasks land in free blocks │  │
-│  └─────────────────────────────────────────────┘  │
-│  On track ●  ·  3 tasks this week  ·  gap: Sys Dsn │
-└────────────────────────────────────────────────────┘
-
-┌─ SCREEN 3 · Fell behind → re-solve ───────────────┐
-│  "Didn't finish: System Design practice"   [mark]  │
-│  → blocks recompute (signature animation)          │
-│  ⚠ Amber state: "You can fully prep the onsite OR  │
-│     apply to 3 roles closing Fri — not both.       │
-│     [ Prep onsite ]   [ Apply to roles ]"          │
-└────────────────────────────────────────────────────┘
-
-┌─ SCREEN 4 · Coach chat (thin LLM layer) ──────────┐
-│  you: "I'm behind, reshuffle my week"              │
-│  ◇  "Moved DS&A to Wed, dropped the formatting     │
-│      task — it wasn't serving this role. Onsite    │
-│      prep is protected. Here's the new week."      │
-└────────────────────────────────────────────────────┘
+--ink:         #1A1D24   near-black text
+--paper:       #F2F4F3   cool off-white background
+--surface:     #FFFFFF   cards
+--accent:      #2F6F62   deep teal — on track / primary
+--accent-soft: #E4EFEC
+--warn:        #C7682E   burnt amber — feasibility moment ONLY
+--warn-soft:   #F7E9DF
+--line:        #DCE0DE   hairline borders
+--muted:       #6B7370
 ```
 
-### 6.3 The two demo moments (design everything around these)
-1. **Roadmap lands in the week** (Screen 2): tasks visibly derived from the
-   JD↔resume gap, slotted around real walls. "It scheduled, not just listed."
-2. **Fall behind → honest re-solve** (Screen 3): the amber forced-tradeoff +
-   calm rebuild. "It told me the truth instead of pretending I could catch up."
+Amber appears **nowhere** except the tradeoff moment. If it's everywhere, it
+means nothing.
+
+### Typography
+- Display / day labels: *Space Grotesk*
+- Body: *Inter*
+- Data / time labels: *IBM Plex Mono*
+
+### The two demo moments
+
+**Moment 1 — the roadmap lands (Screen 2)**
+User pastes JD → Exa retrieves live signal → `derive_tasks` enriches the
+roadmap → `/api/plan` → blocks land in the week grid with staggered animation.
+B owns the animation in `WeekGrid.jsx`: blocks slide smoothly, moved blocks
+briefly highlight in lighter teal before settling. This motion *is* the product.
+
+**Moment 2 — Otto comes to you (Screen 3 + Zo)**
+User marks a task missed → `/api/reshuffle` → feasibility check fires → if
+infeasible, amber tradeoff card with live buttons → "choose one" drops the
+other goal, re-solves, re-animates → calm green rebuild. Simultaneously, Zo
+fires a Telegram ping with the best next action. B owns the tradeoff
+interaction in `App.jsx`; D owns `zo_agent.py`.
 
 ---
 
-## 7. Build order tomorrow (engine-first, risk-front-loaded)
+## 8. Zo integration
 
-- **0–1h** — scaffold runs (this repo). Lock the data model.
-- **1–4h** — THE ENGINE: greedy weighted scheduler + prereq ordering +
-  at-risk bucket. Unit-test it on fixtures with NO LLM. This is the moat;
-  if it's solid by hour 4, you've de-risked the whole project.
-- **4–5h** — feasibility + minimal-cut tradeoff + downscoping.
-- **5–7h** — LLM ears: resume→profile, JD→tasks. Wire real OpenAI key.
-- **7–9h** — the week-grid UI + the re-solve signature animation (Screen 2+3).
-- **9–10h** — coach chat (thin narration over the engine).
-- **10–11h** — polish the two demo moments; rehearse the click path.
-- **11–12h** — STRETCH, time-boxed: Google Calendar read-only OR Exa job
-  match. Only if core is done. Drop without regret if either fights you.
+Zo Computer hosts the backend and runs `zo_agent.py` on a schedule.
+
+**What it does:**
+- Pulls the current plan state
+- Checks feasibility (deadline proximity + missed tasks)
+- When behind or close to a deadline, sends a Telegram message:
+  the one best next action + an offer to reshuffle
+
+**What it does not do (yet):**
+- Zo LLM access is TBD — the agent uses OpenAI for message generation for now,
+  and swaps to Zo's LLM layer once the API shape is confirmed
+- It does not touch the scheduling engine; it only reads plan state
 
 ---
 
-## 8. Traps (read before building)
-- Keep the LLM out of `/api/plan` and `/api/reshuffle`. Engine = deterministic.
-- Don't build full ILP. Greedy weighted is finishable and defensible.
-- Cold-start velocity: seed a believable completion history for the demo.
-- Calendar sync & Exa matching are STRETCH adapters, never dependencies.
-- Don't center job-matching — that's 'Sup's turf. Center the roadmap+engine.
-- Amber = feasibility moment only. If it's everywhere, it means nothing.
+## 9. Build order — what remains
+
+| Priority | Task | Owner | Branch |
+|----------|------|-------|--------|
+| 1 | Re-solve animation | B | `feat/resolve-animation` |
+| 2 | Tradeoff interaction | B | `feat/tradeoff-interaction` |
+| 3 | Zo Telegram alert | D | `feat/zo-telegram` |
+| 4 | LLM direction review | A | `feat/direction-review` |
+| 5 | Wall editor | C | `feat/wall-editor` |
+| 6 | Chat UI polish | C | `feat/chat-polish` |
+| 7 | Deploy | A | `feat/deploy` |
+| 8 | Google Calendar sync | — | `feat/calendar-sync` (stretch) |
+
+---
+
+## 10. Traps
+
+- **LLM out of the engine.** `/api/plan` and `/api/reshuffle` call no LLM.
+  Ever. Engine = deterministic.
+- **Vocabulary seam.** `parse_jd` must emit skill names that match `gaps.py`'s
+  vocabulary (`"data structures"`, `"system design"`, not `"DSA"` or `"SD"`).
+  The prompt enforces this; `gaps.py` lowercases on input as a second defence.
+  Test the full flow with the real demo JD before declaring hour 4 done.
+- **Exa as signal, not the boss.** Exa enriches `required_skills` but the
+  engine still controls scheduling. If Exa returns nothing, `SKILL_TASKS` is
+  the fallback — the app never hard-fails on a missing key.
+- **Zo LLM TBD.** Don't block `zo_agent.py` on Zo's LLM API. Use OpenAI for
+  message generation now; make the LLM call swappable later.
+- **Amber = feasibility only.** Never render `--warn` outside the tradeoff
+  moment. When the week turns amber, it must mean something.
+- **Hour-8 gate.** No stretch goals — no Calendar, no Exa job-match, no engine
+  upgrades — until both demo moments work end-to-end and the app is deployed.
+  Record a screen-capture fallback before passing the gate.
+- **Don't build full ILP.** Greedy weighted is finishable and defensible.
+  A judge who asks "how does the scheduler work?" gets a satisfying answer from
+  the greedy approach. Swap the core later if time allows — the interface
+  (`schedule(tasks, profile, deadline_day) → Plan`) stays identical.
