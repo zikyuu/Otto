@@ -1,7 +1,4 @@
 import { useState } from 'react';
-import { GOALS } from '../data/fixtures.js';
-
-const PERSONAL_GOALS = GOALS.filter(g => g.tag === 'life');
 
 function mapApiGoal(apiGoal, tasks) {
   const goalTasks = (tasks ?? []).filter(t => t.goal_id === apiGoal.id);
@@ -40,7 +37,7 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
   const [deletingId, setDeletingId] = useState(null);
 
   const mappedApiGoals = apiGoals.map(g => mapApiGoal(g, apiTasks));
-  const goals = mappedApiGoals.length ? [...mappedApiGoals, ...PERSONAL_GOALS] : GOALS;
+  const goals = mappedApiGoals;
   const isReal = mappedApiGoals.length > 0;
 
   async function handleAdd() {
@@ -122,6 +119,20 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
         </div>
       )}
 
+      {goals.length === 0 && !adding && (
+        <div style={{ marginTop: 32, textAlign: 'center', color: '#AD9B84', fontSize: 15 }}>
+          <div style={{ fontSize: 38, marginBottom: 12 }}>🎯</div>
+          <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 18, color: '#4A3526', marginBottom: 6 }}>No job targets yet</div>
+          <div style={{ marginBottom: 20 }}>Paste a job description and Otto will build a plan around it.</div>
+          <div onClick={() => setAdding(true)} style={{
+            display: 'inline-block', cursor: 'pointer',
+            background: 'linear-gradient(135deg,#C0894F,#A8703E)', color: '#fff',
+            fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 14,
+            padding: '11px 22px', borderRadius: 13,
+          }}>+ Add job target</div>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(330px,1fr))', gap: 16, marginTop: 22 }}>
         {goals.map(g => (
           <div key={g.id} onClick={() => onOpenGoal(g.id)} style={{
@@ -168,8 +179,8 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
 
 export function GoalDetail({ goalId, checks, onToggleSub, onClose, apiGoals = [], apiTasks = [] }) {
   const mappedApiGoals = apiGoals.map(g => mapApiGoal(g, apiTasks));
-  const allGoals = mappedApiGoals.length ? [...mappedApiGoals, ...PERSONAL_GOALS] : GOALS;
-  const g = allGoals.find(x => x.id === goalId) || allGoals[0];
+  const g = mappedApiGoals.find(x => x.id === goalId) || mappedApiGoals[0];
+  if (!g) return null;
 
   return (
     <div style={{ padding: '28px 44px 40px', animation: 'fadeIn .4s ease' }}>

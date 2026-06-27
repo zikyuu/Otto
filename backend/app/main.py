@@ -19,7 +19,7 @@ import io
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -210,6 +210,45 @@ def chat(body: ChatBody):
     goals = _goals_from(body.goals) if body.goals else []
     review = direction_review([], goals[0]) if goals else ""
     return {"narration": narrate(body.message, body.plan_summary), "review": review}
+
+# ---- Google Calendar -------------------------------------------------------
+
+@app.get("/api/google/status")
+def google_status(user_id: str):
+    from app.google_auth import is_connected
+    return {"connected": is_connected(user_id)}
+
+@app.get("/api/google/auth-url")
+def google_auth_url(user_id: str):
+    from app.google_auth import get_auth_url
+    try:
+        return {"url": get_auth_url(user_id)}
+    except RuntimeError as e:
+        return {"error": str(e)}
+
+@app.get("/api/google/callback")
+def google_callback(code: str, state: str):
+    from app.google_auth import exchange_code, FRONTEND_URL
+    try:
+        exchange_code(code, state)
+        return RedirectResponse(url=f"{FRONTEND_URL}?google=connected")
+    except Exception as e:
+        return RedirectResponse(url=f"{FRONTEND_URL}?google=error&msg={e}")
+
+@app.get("/api/google/walls")
+def google_walls(user_id: str):
+    from app.google_auth import get_walls
+    try:
+        return {"walls": get_walls(user_id), "connected": True}
+    except Exception as e:
+        print(f"[google] get_walls error: {e}")
+        return {"walls": [], "connected": False}
+
+@app.delete("/api/google/disconnect")
+def google_disconnect(user_id: str):
+    from app.google_auth import disconnect
+    disconnect(user_id)
+    return {"ok": True}
 
 # ---- SPA static file serving ---------------------------------------------
 

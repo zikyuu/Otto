@@ -12,7 +12,7 @@ import { GoalsList, GoalDetail } from './views/Goals.jsx';
 import Stats from './views/Stats.jsx';
 import Feasibility from './modals/Feasibility.jsx';
 import Tradeoff from './modals/Tradeoff.jsx';
-import { NOW_TASKS, initChecks } from './data/fixtures.js';
+import Settings from './views/Settings.jsx';
 
 const API = import.meta.env.VITE_API ?? '';
 
@@ -82,7 +82,7 @@ export default function App() {
       const saved = localStorage.getItem('otto_checks');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return initChecks;
+    return {};
   });
   const [narration, setNarration] = useState('');
 
@@ -156,17 +156,43 @@ export default function App() {
     _applyPlanUpdate(data);
   }
 
-  // Map engine tasks → Now view shape; fall back to fixtures before onboarding
-  const nowTasks = currentTasks.length > 0
-    ? currentTasks.map(t => ({
-        k: t.id,
-        t: t.title.replace(/^Build skill:\s*/i, ''),
-        meta: `${t.full_minutes} min · ${t.skill_served}`,
-        done: t.status === 'done',
-        star: t.importance >= 0.7,
-        checked: checks[t.id] ?? false,
-      }))
-    : NOW_TASKS.map(t => ({ ...t, checked: checks[t.k] }));
+  // Handle Google Calendar OAuth callback redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('google') === 'connected') {
+      window.history.replaceState({}, '', window.location.pathname);
+      // Fetch walls and rebuild plan with them
+      if (user) {
+        fetch(`/api/google/walls?user_id=${user.id}`)
+          .then(r => r.json())
+          .then(({ walls }) => walls?.length && handleWallsUpdate(walls))
+          .catch(() => {});
+      }
+    }
+  }, [user?.id]);
+
+  function handleWallsUpdate(newWalls) {
+    if (!planData) return;
+    const updated = { ...planData, profile: { ...planData.profile, walls: newWalls } };
+    localStorage.setItem('otto_plan', JSON.stringify(updated));
+    setPlanData(updated);
+    // Rebuild plan with new walls so scheduler respects them
+    fetch('/api/plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: updated.profile, goals: apiGoals, user_id: user?.id ?? '' }),
+    }).then(r => r.json()).then(result => {
+      if (result?.plan) _applyPlanUpdate({ ...updated, ...result });
+    }).catch(() => {});
+  }
+
+  const nowTasks = currentTasks.map(t => ({
+    k: t.id,
+    t: t.title.replace(/^Build skill:\s*/i, ''),
+    meta: `${t.full_minutes} min · ${t.skill_served}`,
+    done: t.status === 'done',
+    star: t.importance >= 0.7,
+    checked: checks[t.id] ?? false,
+  }));
 
   // ── routing ───────────────────────────────────────────────────────────────
   const rawName = planData?.profile?.name || user?.email?.split('@')[0] || '';
@@ -195,11 +221,13 @@ export default function App() {
               <Now tasks={nowTasks} onToggle={toggleCheck} onFellBehind={fellBehind} onOpenFeasibility={() => setModal('feasibility')} userName={userName} feasible={planData?.plan?.feasible} />
             )}
             {lens === 'now' && recovery && (
-              <Recovery narration={narration} onExit={() => { setRecovery(false); setNarration(''); }} />
+              <Recovery narration={narration} tasks={currentTasks} checks={checks}
+                onExit={() => { setRecovery(false); setNarration(''); }} />
             )}
             {lens === 'calendar' && (
               <Calendar calView={calView} setCalView={setCalView} sel={sel} setSel={setSel}
-                walls={currentWalls} blocks={currentBlocks} tasks={currentTasks} />
+                walls={currentWalls} blocks={currentBlocks} tasks={currentTasks}
+                userId={user?.id} onWallsUpdate={handleWallsUpdate} />
             )}
             {lens === 'goals' && !goal && (
               <GoalsList checks={checks} onToggleSub={toggleCheck} onOpenGoal={setGoal}
@@ -213,6 +241,26 @@ export default function App() {
             {lens === 'stats' && (
               <Stats tasks={currentTasks} checks={checks} blocks={currentBlocks}
                 feasible={planData?.plan?.feasible} goalTitle={planData?.goal?.title} />
+            )}
+            {lens === 'settings' && (
+              <Settings
+                planData={planData}
+                onSave={async (profile) => {
+                  const data = await fetch('/api/plan', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ profile, goals: apiGoals, user_id: user.id }),
+                  }).then(r => r.json());
+                  if (data?.plan) {
+                    _applyPlanUpdate({ ...planData, profile, tasks: data.tasks, blocks: data.plan.blocks, plan: data.plan });
+                    setLens('now');
+                  }
+                }}
+                onStartOver={() => {
+                  localStorage.removeItem('otto_plan');
+                  localStorage.removeItem('otto_checks');
+                  setPlanData(null);
+                }}
+              />
             )}
           </div>
         </div>

@@ -1,10 +1,43 @@
+import { useState, useEffect } from 'react';
 import { BUSY_DAYS, WEEK_CHIPS } from '../data/fixtures.js';
 import WeekGrid from '../components/WeekGrid.jsx';
 
 const SEG = ['month', '2w', '1w'];
 const SEG_LABELS = { month: 'Month', '2w': '2 weeks', '1w': '1 week' };
 
-export default function Calendar({ calView, setCalView, sel, setSel, walls = [], blocks = [], tasks = [] }) {
+export default function Calendar({ calView, setCalView, sel, setSel, walls = [], blocks = [], tasks = [], userId, onWallsUpdate }) {
+  const [gcConnected, setGcConnected] = useState(null); // null=loading, true, false
+  const [gcLoading, setGcLoading] = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`/api/google/status?user_id=${userId}`)
+      .then(r => r.json())
+      .then(d => setGcConnected(d.connected))
+      .catch(() => setGcConnected(false));
+  }, [userId]);
+
+  async function connectGoogle() {
+    if (!userId) return;
+    setGcLoading(true);
+    const { url, error } = await fetch(`/api/google/auth-url?user_id=${userId}`).then(r => r.json());
+    if (error) { alert(error); setGcLoading(false); return; }
+    window.location.href = url;
+  }
+
+  async function disconnectGoogle() {
+    await fetch(`/api/google/disconnect?user_id=${userId}`, { method: 'DELETE' });
+    setGcConnected(false);
+    onWallsUpdate?.([]);
+  }
+
+  async function refreshWalls() {
+    setGcLoading(true);
+    const { walls: newWalls } = await fetch(`/api/google/walls?user_id=${userId}`).then(r => r.json());
+    onWallsUpdate?.(newWalls ?? []);
+    setGcLoading(false);
+  }
+
   return (
     <div style={{ padding: '32px 44px 40px', animation: 'fadeIn .45s ease' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap', marginBottom:20 }}>
@@ -20,6 +53,49 @@ export default function Calendar({ calView, setCalView, sel, setSel, walls = [],
           ))}
         </div>
       </div>
+
+      {/* Google Calendar banner */}
+      {gcConnected === false && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14,
+          background: '#FBEFD9', border: '1px solid #F3DCB0', borderRadius: 16,
+          padding: '13px 18px', marginBottom: 18,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+            <span style={{ fontSize: 20 }}>📅</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: '#9A6B1E' }}>Connect Google Calendar</div>
+              <div style={{ fontSize: 12, color: '#B08440', marginTop: 1 }}>Block off busy times so Otto never schedules over them.</div>
+            </div>
+          </div>
+          <div onClick={connectGoogle} style={{
+            cursor: gcLoading ? 'wait' : 'pointer',
+            background: 'linear-gradient(135deg,#C0894F,#A8703E)', color: '#fff',
+            fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 13,
+            padding: '9px 16px', borderRadius: 11, whiteSpace: 'nowrap',
+          }}>
+            {gcLoading ? 'Redirecting…' : 'Connect →'}
+          </div>
+        </div>
+      )}
+      {gcConnected === true && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: '#E2F2EA', border: '1px solid #C9E6D5', borderRadius: 16,
+          padding: '11px 18px', marginBottom: 18,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#6BBF95' }} />
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#4FA77D' }}>Google Calendar connected</span>
+          </div>
+          <div style={{ display: 'flex', gap: 14 }}>
+            <span onClick={refreshWalls} style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#4FA77D' }}>
+              {gcLoading ? 'Refreshing…' : '↻ Refresh'}
+            </span>
+            <span onClick={disconnectGoogle} style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#AD9B84' }}>Disconnect</span>
+          </div>
+        </div>
+      )}
 
       <div style={{ display:'flex', gap:22, flexWrap:'wrap' }}>
         {/* Calendar grid */}

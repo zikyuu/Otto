@@ -80,11 +80,13 @@ export default function Sidebar({ lens, setLens, userName, feasible }) {
             {feasible === false ? 'Week is tight' : 'On track this week'}
           </span>
         </div>
-        <div onClick={logout} style={{
-          marginTop: 10, textAlign: 'center', fontSize: 11, fontWeight: 700,
-          color: '#C9B89A', cursor: 'pointer', letterSpacing: '.3px',
-        }}>
-          Sign out
+        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between' }}>
+          <span onClick={() => setLens('settings')} style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#C9B89A' }}>
+            Edit profile
+          </span>
+          <span onClick={logout} style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#C9B89A' }}>
+            Sign out
+          </span>
         </div>
       </div>
     </div>
