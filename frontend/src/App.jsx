@@ -15,6 +15,7 @@ import Tradeoff from './modals/Tradeoff.jsx';
 import Settings from './views/Settings.jsx';
 
 const API = import.meta.env.VITE_API ?? '';
+import { NOW_TASKS, initChecks, INITIAL_EVENTS } from './data/fixtures.js';
 
 export default function App() {
   // ── auth ──────────────────────────────────────────────────────────────────
@@ -82,8 +83,9 @@ export default function App() {
       const saved = localStorage.getItem('otto_checks');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return {};
+    return initChecks();
   });
+  const [events, setEvents] = useState(INITIAL_EVENTS);
   const [narration, setNarration] = useState('');
 
   function setLens(l) { setLensRaw(l); setGoal(null); setRecovery(false); }
@@ -225,9 +227,7 @@ export default function App() {
                 onExit={() => { setRecovery(false); setNarration(''); }} />
             )}
             {lens === 'calendar' && (
-              <Calendar calView={calView} setCalView={setCalView} sel={sel} setSel={setSel}
-                walls={currentWalls} blocks={currentBlocks} tasks={currentTasks}
-                userId={user?.id} onWallsUpdate={handleWallsUpdate} />
+              <Calendar calView={calView} setCalView={setCalView} sel={sel} setSel={setSel} events={events} setEvents={setEvents} />
             )}
             {lens === 'goals' && !goal && (
               <GoalsList checks={checks} onToggleSub={toggleCheck} onOpenGoal={setGoal}

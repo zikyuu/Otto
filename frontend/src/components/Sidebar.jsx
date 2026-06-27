@@ -1,3 +1,5 @@
+import mainLogo from '../assets/mascots/main logo.png';
+
 const NAV = [
   { key: 'now', icon: '◗', label: 'Now' },
   { key: 'calendar', icon: '▦', label: 'Calendar' },
@@ -23,8 +25,12 @@ export default function Sidebar({ lens, setLens, userName, feasible }) {
     }}>
       {/* Logo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '0 6px' }}>
-        <OtterLogo />
-        <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 21, color: '#4A3526' }}>meatballs</div>
+        <img
+          src={mainLogo}
+          alt="OTTO logo"
+          style={{ width: 42, height: 42, objectFit: 'contain', flex: '0 0 auto' }}
+        />
+        <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 21, color: '#4A3526' }}>OTTO</div>
       </div>
 
       {/* Nav */}
@@ -89,20 +95,6 @@ export default function Sidebar({ lens, setLens, userName, feasible }) {
           </span>
         </div>
       </div>
-    </div>
-  );
-}
-
-function OtterLogo() {
-  return (
-    <div style={{ position: 'relative', width: 42, height: 40, flex: '0 0 auto' }}>
-      <div style={{ position:'absolute', top:4, left:6, width:13, height:13, borderRadius:'50%', background:'#9A6440' }} />
-      <div style={{ position:'absolute', top:4, right:6, width:13, height:13, borderRadius:'50%', background:'#9A6440' }} />
-      <div style={{ position:'absolute', top:7, left:11, right:11, bottom:0, borderRadius:'50%', background:'radial-gradient(120% 110% at 50% 20%,#B27C53,#9A6440)' }} />
-      <div style={{ position:'absolute', bottom:3, left:12, right:12, height:18, borderRadius:'50%', background:'#F0D6B0' }} />
-      <div style={{ position:'absolute', top:18, left:13, width:7, height:5, border:'2px solid #3A2A1E', borderTop:'none', borderRadius:'0 0 8px 8px' }} />
-      <div style={{ position:'absolute', top:18, right:13, width:7, height:5, border:'2px solid #3A2A1E', borderTop:'none', borderRadius:'0 0 8px 8px' }} />
-      <div style={{ position:'absolute', bottom:6, left:'50%', transform:'translateX(-50%)', width:15, height:15, borderRadius:'50%', background:'radial-gradient(circle at 36% 30%,#8A5630,#5E3620)', zIndex:3 }} />
     </div>
   );
 }
