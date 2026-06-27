@@ -1,6 +1,6 @@
 import panickedImg from '../assets/mascots/panicked.png';
 
-export default function Recovery({ onExit }) {
+export default function Recovery({ onExit, narration }) {
   return (
     <div style={{ animation: 'fadeIn .45s ease' }}>
       <div style={{
@@ -68,6 +68,16 @@ export default function Recovery({ onExit }) {
             }}>Swap it in</div>
           </div>
         </div>
+
+        {narration && (
+          <div style={{
+            marginTop: 16, background: '#fff', border: '1px solid #ECE3D4',
+            borderRadius: 16, padding: '16px 18px',
+            fontSize: 14, color: '#5C4A35', lineHeight: 1.6,
+          }}>
+            {narration}
+          </div>
+        )}
 
         <div style={{ textAlign:'center', marginTop:24 }}>
           <span onClick={onExit} style={{ cursor:'pointer', fontWeight:700, fontSize:14, color:'#8C7A64', borderBottom:'2px solid #E1D5C0', paddingBottom:2 }}>

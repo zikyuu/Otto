@@ -41,8 +41,8 @@ class Profile:
     skills: list[Skill] = field(default_factory=list)
     free_hours_per_day: float = 3.0
     walls: list[Wall] = field(default_factory=list)
-    # rolling completion rate 0..1; cold-start seeded for the demo
     velocity: float = 0.8
+    name: str = ""
 
     def has_skill(self, name: str, min_prof: int = 2) -> bool:
         return any(s.name.lower() == name.lower() and s.proficiency >= min_prof

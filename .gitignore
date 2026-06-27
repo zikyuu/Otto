@@ -222,3 +222,7 @@ __marimo__/
 
 # Node / Frontend
 node_modules/
+*.env.local
+.env.local
+.env*.local
+backend/.env

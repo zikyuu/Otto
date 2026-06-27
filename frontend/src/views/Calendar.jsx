@@ -1,9 +1,10 @@
 import { BUSY_DAYS, WEEK_CHIPS } from '../data/fixtures.js';
+import WeekGrid from '../components/WeekGrid.jsx';
 
 const SEG = ['month', '2w', '1w'];
 const SEG_LABELS = { month: 'Month', '2w': '2 weeks', '1w': '1 week' };
 
-export default function Calendar({ calView, setCalView, sel, setSel }) {
+export default function Calendar({ calView, setCalView, sel, setSel, walls = [], blocks = [], tasks = [] }) {
   return (
     <div style={{ padding: '32px 44px 40px', animation: 'fadeIn .45s ease' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap', marginBottom:20 }}>
@@ -33,7 +34,10 @@ export default function Calendar({ calView, setCalView, sel, setSel }) {
 
           {calView === 'month' && <MonthGrid sel={sel} setSel={setSel} />}
           {calView === '2w' && <TwoWeekGrid sel={sel} setSel={setSel} />}
-          {calView === '1w' && <OneWeekGrid />}
+          {calView === '1w' && (blocks.length > 0
+            ? <WeekGrid walls={walls} blocks={blocks} tasks={tasks} />
+            : <OneWeekGrid />
+          )}
         </div>
 
         {/* Day detail */}

@@ -49,8 +49,9 @@ def parse_resume(resume_text: str) -> Profile:
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content":
-                     "Extract skills from this resume. Return JSON: "
-                     '{"skills":[{"name":<str>,"proficiency":0-3}]}. '
+                     "Extract from this resume. Return JSON: "
+                     '{"name":<str>,"skills":[{"name":<str>,"proficiency":0-3}]}. '
+                     "name: the candidate's full name (empty string if not found). "
                      "Proficiency: 3=strong/professional, 2=solid, 1=basic."},
                     {"role": "user", "content": resume_text[:6000]},
                 ],
@@ -58,7 +59,7 @@ def parse_resume(resume_text: str) -> Profile:
             data = json.loads(r.choices[0].message.content)
             skills = [Skill(id=str(i), name=s["name"], proficiency=int(s.get("proficiency", 1)))
                       for i, s in enumerate(data.get("skills", []))]
-            return Profile(skills=skills)
+            return Profile(skills=skills, name=data.get("name", ""))
         except Exception:
             pass
     skills = [Skill(id=str(i), name=n, proficiency=2) for i, n in enumerate(_kw_extract(resume_text))]
