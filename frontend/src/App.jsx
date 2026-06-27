@@ -10,7 +10,7 @@ import Stats from './views/Stats.jsx';
 import Feasibility from './modals/Feasibility.jsx';
 import Tradeoff from './modals/Tradeoff.jsx';
 
-import { NOW_TASKS, initChecks } from './data/fixtures.js';
+import { NOW_TASKS, initChecks, INITIAL_EVENTS } from './data/fixtures.js';
 
 export default function App() {
   const [lens, setLensRaw] = useState('now');
@@ -21,6 +21,7 @@ export default function App() {
   const [modal, setModal] = useState(null);
   const [pick, setPick] = useState(null);
   const [checks, setChecks] = useState(initChecks);
+  const [events, setEvents] = useState(INITIAL_EVENTS);
 
   function setLens(l) { setLensRaw(l); setGoal(null); setRecovery(false); }
   function toggleCheck(k) { setChecks(c => ({ ...c, [k]: !c[k] })); }
@@ -53,7 +54,7 @@ export default function App() {
               <Recovery onExit={() => setRecovery(false)} />
             )}
             {lens === 'calendar' && (
-              <Calendar calView={calView} setCalView={setCalView} sel={sel} setSel={setSel} />
+              <Calendar calView={calView} setCalView={setCalView} sel={sel} setSel={setSel} events={events} setEvents={setEvents} />
             )}
             {lens === 'goals' && !goal && (
               <GoalsList checks={checks} onToggleSub={toggleCheck} onOpenGoal={setGoal} />

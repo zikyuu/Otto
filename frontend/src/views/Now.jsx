@@ -26,7 +26,7 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
               Hello, Yuki
             </div>
             <div style={{ fontStyle: 'italic', fontWeight: 600, fontSize: 18, color: '#8C7A64', marginTop: 6 }}>
-              "Slow is smooth, smooth is fast."
+              "Lock In NOW. Not too late to reverse unemployment."
             </div>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 16,
@@ -38,7 +38,7 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
           </div>
           <img
             src={eatingImg} alt="happy otter eating meatballs"
-            style={{ width: 190, height: 'auto', flex: '0 0 auto', animation: 'floatM 5.5s ease-in-out infinite', filter: 'drop-shadow(0 12px 16px rgba(110,84,54,.22))' }}
+            style={{ width: 270, height: 'auto', flex: '0 0 auto', animation: 'floatM 5.5s ease-in-out infinite', filter: 'drop-shadow(0 12px 16px rgba(110,84,54,.22))' }}
           />
         </div>
 

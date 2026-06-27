@@ -1,5 +1,4 @@
 import { Overlay } from './Feasibility.jsx';
-import wiseImg from '../assets/mascots/wise.png';
 
 export default function Tradeoff({ pick, onPick, onClose }) {
   const msg = pick === 'onsite'

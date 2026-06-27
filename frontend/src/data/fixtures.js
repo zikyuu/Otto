@@ -92,6 +92,64 @@ export const GOALS = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Category colour system — each category has a distinct colour so the
+// calendar is scannable at a glance. Locked/flexible is shown as a 🔒 icon,
+// NOT via colour. Add new categories here and they automatically get picked
+// up across the whole calendar.
+// ---------------------------------------------------------------------------
+export const CATEGORY_COLORS = {
+  'llm':           { bg:'#DDEAFF', accent:'#4373D6', text:'#1F49A8', label:'LLM / RAG'     },
+  'leetcode':      { bg:'#D8F5E4', accent:'#32A85C', text:'#15693A', label:'LeetCode'       },
+  'interview':     { bg:'#FFE2E2', accent:'#D44848', text:'#9E2020', label:'Interview'       },
+  'gym':           { bg:'#FFE6D0', accent:'#E07030', text:'#A04010', label:'Gym / Health'   },
+  'social':        { bg:'#FFF6CC', accent:'#C9980A', text:'#7A5B00', label:'Social'         },
+  'leisure':       { bg:'#EDE0FF', accent:'#8450D6', text:'#522AAA', label:'Leisure'        },
+  'system-design': { bg:'#E8E2FF', accent:'#6B50D6', text:'#3D2AAA', label:'System Design'  },
+  'admin':         { bg:'#EEEBE6', accent:'#8C7E6A', text:'#4A3E30', label:'Admin'          },
+  'life':          { bg:'#FFE6D0', accent:'#E07030', text:'#A04010', label:'Life'           },
+  'deep work':     { bg:'#DDEAFF', accent:'#4373D6', text:'#1F49A8', label:'Deep Work'      },
+};
+
+// Fallback for unknown categories
+export const DEFAULT_CAT_COLOR = { bg:'#EEEBE6', accent:'#8C7E6A', text:'#4A3E30', label:'Other' };
+
+// ---------------------------------------------------------------------------
+// Calendar events
+// Each event: { id, title, day (date 22-28), startMin (mins from midnight),
+//               durationMin, category, fixed }
+// No hardcoded color — display color is derived from category via CATEGORY_COLORS.
+// fixed:true  → locked (cannot be moved by AI or user drag)
+// fixed:false → flexible (AI can reschedule freely)
+//
+// TODO (backend dev): replace INITIAL_EVENTS with data from GET /api/plan
+// Map Block[] + Task[] → CalEvent[]: frontendDay = block.day + 22 (0-indexed Mon-Sun)
+// ---------------------------------------------------------------------------
+export const INITIAL_EVENTS = [
+  // Monday 22
+  { id:'e1',  title:'RAG pipeline design',         day:22, startMin:9*60,     durationMin:90, category:'llm',           fixed:false },
+  { id:'e2',  title:'Reply to recruiters',          day:22, startMin:11*60,    durationMin:15, category:'admin',         fixed:false },
+  // Tuesday 23
+  { id:'e3',  title:'System design mock',           day:23, startMin:10*60,    durationMin:60, category:'interview',     fixed:true  },
+  { id:'e4',  title:'LeetCode — 2 mediums',         day:23, startMin:14*60,    durationMin:30, category:'leetcode',      fixed:false },
+  // Wednesday 24
+  { id:'e5',  title:'Recruiter call — Meta',        day:24, startMin:11*60,    durationMin:30, category:'interview',     fixed:true  },
+  { id:'e6',  title:'Gym session',                  day:24, startMin:17*60+30, durationMin:60, category:'gym',           fixed:true  },
+  // Thursday 25
+  { id:'e7',  title:'Full LeetCode set',            day:25, startMin:9*60,     durationMin:60, category:'leetcode',      fixed:false },
+  { id:'e8',  title:'Onsite prep — system design',  day:25, startMin:14*60,    durationMin:90, category:'system-design', fixed:false },
+  // Friday 26
+  { id:'e9',  title:'Gym session',                  day:26, startMin:8*60+30,  durationMin:60, category:'gym',           fixed:true  },
+  { id:'e10', title:'Apply to 3 roles',             day:26, startMin:11*60,    durationMin:45, category:'admin',         fixed:false },
+  // Saturday 27
+  { id:'e11', title:'Add embeddings + pgvector',    day:27, startMin:10*60,    durationMin:45, category:'llm',           fixed:false },
+  { id:'e12', title:'Daily LeetCode',               day:27, startMin:11*60,    durationMin:20, category:'leetcode',      fixed:false },
+  { id:'e13', title:'Evening walk · 8k steps',      day:27, startMin:18*60+30, durationMin:30, category:'gym',           fixed:false },
+  // Sunday 28
+  { id:'e14', title:'Meal prep',                    day:28, startMin:12*60,    durationMin:45, category:'life',          fixed:false },
+  { id:'e15', title:'Week review + next plan',      day:28, startMin:16*60,    durationMin:30, category:'admin',         fixed:false },
+];
+
 export const BUSY_DAYS = { 2:1,4:2,9:1,11:1,16:2,18:1,23:1,24:2,25:1,26:1,27:2,29:1 };
 
 export const WEEK_CHIPS = {
