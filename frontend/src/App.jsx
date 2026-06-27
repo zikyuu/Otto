@@ -198,9 +198,10 @@ export default function App() {
   const rawName = planData?.profile?.name || user?.email?.split('@')[0] || '';
   const userName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
 
-  if (authLoading || planLoading) return null;
-  if (!user) return <Login onLogin={setUser} />;
-  if (!planData) return <Setup onComplete={onSetupComplete} userId={user.id} />;
+  // Auth gate disabled for local dev — Supabase not configured locally
+  // if (authLoading || planLoading) return null;
+  // if (!user) return <Login onLogin={setUser} />;
+  // if (!planData) return <Setup onComplete={onSetupComplete} userId={user.id} />;
 
   // ── main app (original design) ────────────────────────────────────────────
   return (
