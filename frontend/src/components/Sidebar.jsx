@@ -1,11 +1,11 @@
+import { supabase } from '../lib/supabase.js';
+
 const NAV = [
   { key: 'now', icon: '◗', label: 'Now' },
   { key: 'calendar', icon: '▦', label: 'Calendar' },
   { key: 'goals', icon: '◎', label: 'Goals' },
   { key: 'stats', icon: '◔', label: 'Stats' },
 ];
-
-import { supabase } from '../lib/supabase.js';
 
 export default function Sidebar({ lens, setLens, userName, feasible }) {
   async function logout() {
