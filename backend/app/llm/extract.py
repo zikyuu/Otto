@@ -40,6 +40,11 @@ def _kw_extract(text: str) -> list[str]:
     return [s for s in _KNOWN if s in low]
 
 
+def _normalize_skill_name(name: str) -> str:
+    name = name.lower().strip()
+    return _SKILL_SYNONYMS.get(name, name)
+
+
 def parse_resume(resume_text: str) -> Profile:
     """resume -> Profile with skills. LLM if available, else keyword match."""
     if _client:
@@ -51,18 +56,62 @@ def parse_resume(resume_text: str) -> Profile:
                     {"role": "system", "content":
                      "Extract skills from this resume. Return JSON: "
                      '{"skills":[{"name":<str>,"proficiency":0-3}]}. '
+                     "Use these exact skill names where possible: data structures, "
+                     "algorithms, system design, sql, apis, python, testing, "
+                     "portfolio project. "
                      "Proficiency: 3=strong/professional, 2=solid, 1=basic."},
                     {"role": "user", "content": resume_text[:6000]},
                 ],
             )
             data = json.loads(r.choices[0].message.content)
-            skills = [Skill(id=str(i), name=s["name"], proficiency=int(s.get("proficiency", 1)))
+            skills = [Skill(id=str(i), name=_normalize_skill_name(s["name"]),
+                            proficiency=int(s.get("proficiency", 1)))
                       for i, s in enumerate(data.get("skills", []))]
             return Profile(skills=skills)
         except Exception:
             pass
     skills = [Skill(id=str(i), name=n, proficiency=2) for i, n in enumerate(_kw_extract(resume_text))]
     return Profile(skills=skills)
+
+
+_SKILL_SYNONYMS: dict[str, str] = {
+    "dsa": "data structures",
+    "ds&a": "data structures",
+    "data structures and algorithms": "data structures",
+    "algo": "algorithms",
+    "algorithm": "algorithms",
+    "sd": "system design",
+    "sys design": "system design",
+    "systems design": "system design",
+    "rest": "apis",
+    "rest apis": "apis",
+    "rest api": "apis",
+    "api design": "apis",
+    "api": "apis",
+    "db": "sql",
+    "database": "sql",
+    "databases": "sql",
+    "postgresql": "sql",
+    "mysql": "sql",
+    "test": "testing",
+    "unit testing": "testing",
+    "tdd": "testing",
+}
+
+_VALID_SKILLS = {"data structures", "algorithms", "system design", "sql",
+                 "apis", "python", "testing", "portfolio project"}
+
+
+def _normalize_skills(raw: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for s in raw:
+        s = s.lower().strip()
+        s = _SKILL_SYNONYMS.get(s, s)
+        if s in _VALID_SKILLS and s not in seen:
+            seen.add(s)
+            result.append(s)
+    return result
 
 
 def parse_jd(jd_text: str, goal_id: str = "job1", title: str = "") -> Goal:
@@ -76,14 +125,16 @@ def parse_jd(jd_text: str, goal_id: str = "job1", title: str = "") -> Goal:
                     {"role": "system", "content":
                      "Extract from this job description. Return JSON: "
                      '{"title":<str>,"required_skills":[<str>]}. '
-                     "Use lowercase skill names like 'data structures', "
-                     "'system design', 'sql', 'apis', 'python'."},
+                     "Only return skills from this list: data structures, "
+                     "algorithms, system design, sql, apis, python, testing, "
+                     "portfolio project. Use these exact names, lowercase."},
                     {"role": "user", "content": jd_text[:6000]},
                 ],
             )
             data = json.loads(r.choices[0].message.content)
+            skills = _normalize_skills(data.get("required_skills", []))
             return Goal(id=goal_id, title=data.get("title", title or "Role"),
-                        jd_text=jd_text, required_skills=data.get("required_skills", []),
+                        jd_text=jd_text, required_skills=skills,
                         fit=0.8)
         except Exception:
             pass
