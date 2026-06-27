@@ -93,7 +93,7 @@ function cellStyleFn(n, sel) {
 }
 
 // ── Calendar ─────────────────────────────────────────────────────────────────
-export default function Calendar({ calView, setCalView, sel, setSel, events, setEvents }) {
+export default function Calendar({ calView, setCalView, sel, setSel, events, setEvents, userId, onWallsUpdate }) {
   const gridRef   = useRef(null);
   const scrollRef = useRef(null);
   const dragRef   = useRef(null);
@@ -106,6 +106,43 @@ export default function Calendar({ calView, setCalView, sel, setSel, events, set
   const [aiNote,    setAiNote]    = useState('');
   const [conflicts, setConflicts] = useState(new Set());
   const [undoStack, setUndoStack] = useState([]);
+
+  // ── Google Calendar ─────────────────────────────────────────────────────────
+  const [gcConnected, setGcConnected] = useState(null); // null=checking, true, false
+  const [gcBusy, setGcBusy] = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`/api/google/status?user_id=${userId}`)
+      .then(r => r.json())
+      .then(d => setGcConnected(d.connected))
+      .catch(() => setGcConnected(false));
+  }, [userId]);
+
+  async function gcConnect() {
+    try {
+      const r = await fetch(`/api/google/auth-url?user_id=${userId}`);
+      const { url } = await r.json();
+      window.location.href = url;
+    } catch { setGcConnected(false); }
+  }
+
+  async function gcRefresh() {
+    setGcBusy(true);
+    try {
+      const { walls } = await fetch(`/api/google/walls?user_id=${userId}`).then(r => r.json());
+      onWallsUpdate?.(walls ?? []);
+    } catch {} finally { setGcBusy(false); }
+  }
+
+  async function gcDisconnect() {
+    setGcBusy(true);
+    try {
+      await fetch(`/api/google/disconnect?user_id=${userId}`, { method: 'DELETE' });
+      setGcConnected(false);
+      onWallsUpdate?.([]);
+    } catch {} finally { setGcBusy(false); }
+  }
 
   useEffect(() => {
     if (conflicts.size === 0) return;
@@ -276,6 +313,49 @@ export default function Calendar({ calView, setCalView, sel, setSel, events, set
           </div>
         </div>
       </div>
+
+      {/* Google Calendar banner */}
+      {gcConnected === false && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          background: '#F5EEE1', border: '1px solid #E9DCC8',
+          borderRadius: 14, padding: '10px 16px', marginBottom: 14,
+        }}>
+          <span style={{ fontSize: 16 }}>📅</span>
+          <span style={{ fontSize: 13, color: '#8C7A64', flex: 1 }}>
+            Connect Google Calendar to automatically block out your busy times.
+          </span>
+          <button onClick={gcConnect} style={{
+            padding: '7px 16px', borderRadius: 999, border: 'none',
+            background: '#A8703E', color: '#fff',
+            fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 13, cursor: 'pointer',
+            boxShadow: '0 4px 10px -6px rgba(168,112,62,.7)',
+          }}>Connect</button>
+        </div>
+      )}
+      {gcConnected === true && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          background: '#E2F2EA', border: '1px solid #C9E6D5',
+          borderRadius: 14, padding: '10px 16px', marginBottom: 14,
+        }}>
+          <span style={{ fontSize: 16 }}>📅</span>
+          <span style={{ fontSize: 13, color: '#3D8A62', flex: 1, fontWeight: 600 }}>
+            Google Calendar connected — busy times are blocked out.
+          </span>
+          <button onClick={gcRefresh} disabled={gcBusy} style={{
+            padding: '7px 14px', borderRadius: 999, border: '1.5px solid #C9E6D5',
+            background: '#fff', color: '#3D8A62',
+            fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 12,
+            cursor: gcBusy ? 'default' : 'pointer', opacity: gcBusy ? 0.6 : 1,
+          }}>{gcBusy ? '…' : 'Refresh'}</button>
+          <button onClick={gcDisconnect} disabled={gcBusy} style={{
+            padding: '7px 14px', borderRadius: 999, border: 'none',
+            background: 'transparent', color: '#AD9B84',
+            fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 12, cursor: 'pointer',
+          }}>Disconnect</button>
+        </div>
+      )}
 
       {/* AI explanation banner */}
       {aiNote && !aiLoading && (

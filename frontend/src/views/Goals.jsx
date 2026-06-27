@@ -118,7 +118,10 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
       const res = await fetch('/api/ai/review-goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goals: apiGoals, timeline_weeks: 8 }),
+        body: JSON.stringify({
+          goals: apiGoals.map(g => { const m = mapApiGoal(g, apiTasks); return { id: m.id, title: m.title, cat: m.cat, pct: m.pct, label: m.label, subnote: m.subnote, direction: m.direction, subs: m.subs }; }),
+          timeline_weeks: 8,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

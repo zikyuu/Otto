@@ -16,6 +16,45 @@ import Settings from './views/Settings.jsx';
 
 const API = import.meta.env.VITE_API ?? '';
 
+// ── calendar helpers ──────────────────────────────────────────────────────────
+const SKILL_TO_CAT = [
+  [['algorithm','leetcode','data structure','dynamic programming','tree','graph','binary'], 'leetcode'],
+  [['system design','architecture','distributed','scalab'], 'system-design'],
+  [['llm','embedding','rag','gpt','machine learning',' ml ','nlp','neural','transformer'], 'llm'],
+  [['interview'], 'interview'],
+];
+function skillToCategory(skill) {
+  const s = ` ${skill.toLowerCase()} `;
+  for (const [keys, cat] of SKILL_TO_CAT) {
+    if (keys.some(k => s.includes(k))) return cat;
+  }
+  return 'deep work';
+}
+function blocksToEvents(blocks, tasks, walls = []) {
+  const planEvents = blocks.map((b, i) => {
+    const task = tasks.find(t => t.id === b.task_id);
+    return {
+      id: `blk_${i}_${b.task_id}`,
+      title: task?.title?.replace(/^Build skill:\s*/i, '') ?? b.task_id,
+      day: b.day + 22,
+      startMin: b.start_min,
+      durationMin: Math.max(15, b.end_min - b.start_min),
+      category: skillToCategory(task?.skill_served ?? ''),
+      fixed: false,
+    };
+  });
+  const wallEvents = walls.map((w, i) => ({
+    id: `wall_${i}`,
+    title: w.label || 'Busy',
+    day: w.day + 22,
+    startMin: w.start_min,
+    durationMin: Math.max(15, w.end_min - w.start_min),
+    category: 'life',
+    fixed: true,
+  }));
+  return [...wallEvents, ...planEvents];
+}
+
 export default function App() {
   // ── auth ──────────────────────────────────────────────────────────────────
   const [user, setUser] = useState(null);
@@ -90,6 +129,14 @@ export default function App() {
   // ── reshuffle ─────────────────────────────────────────────────────────────
   const [liveTasks, setLiveTasks] = useState(null);
   const [liveBlocks, setLiveBlocks] = useState(null);
+  const [events, setEvents] = useState([]);
+
+  useEffect(() => {
+    const blocks = liveBlocks ?? planData?.blocks ?? [];
+    const tasks  = liveTasks  ?? planData?.tasks  ?? [];
+    const walls  = planData?.profile?.walls ?? [];
+    setEvents(blocksToEvents(blocks, tasks, walls));
+  }, [planData, liveBlocks]);
 
   async function fellBehind() {
     setRecovery(true);
@@ -207,7 +254,7 @@ export default function App() {
             )}
             {lens === 'calendar' && (
               <Calendar calView={calView} setCalView={setCalView} sel={sel} setSel={setSel}
-                walls={currentWalls} blocks={currentBlocks} tasks={currentTasks}
+                events={events} setEvents={setEvents}
                 userId={user?.id} onWallsUpdate={handleWallsUpdate} />
             )}
             {lens === 'goals' && !goal && (
