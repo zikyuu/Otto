@@ -5,7 +5,14 @@ const NAV = [
   { key: 'stats', icon: '◔', label: 'Stats' },
 ];
 
-export default function Sidebar({ lens, setLens }) {
+import { supabase } from '../lib/supabase.js';
+
+export default function Sidebar({ lens, setLens, userName, feasible }) {
+  async function logout() {
+    await supabase.auth.signOut();
+    localStorage.removeItem('otto_plan');
+    localStorage.removeItem('otto_checks');
+  }
   return (
     <div style={{
       flex: '0 0 244px',
@@ -53,21 +60,31 @@ export default function Sidebar({ lens, setLens }) {
             background: 'linear-gradient(135deg,#C49B6E,#A8703E)',
             color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: "'Quicksand'", fontWeight: 700,
-          }}>Y</div>
+          }}>{(userName?.[0] ?? '?').toUpperCase()}</div>
           <div>
-            <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 15, color: '#4A3526' }}>Yuki</div>
+            <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 15, color: '#4A3526' }}>{userName ?? '—'}</div>
             <div style={{ fontSize: 11, color: '#AD9B84' }}>Free plan</div>
           </div>
         </div>
         <div style={{
           marginTop: 11, display: 'flex', alignItems: 'center', gap: 8,
-          background: '#E2F2EA', borderRadius: 11, padding: '8px 10px',
+          background: feasible === false ? '#FBEFD9' : '#E2F2EA',
+          borderRadius: 11, padding: '8px 10px',
         }}>
           <div style={{
-            width: 9, height: 9, borderRadius: '50%', background: '#6BBF95',
+            width: 9, height: 9, borderRadius: '50%',
+            background: feasible === false ? '#ECA94E' : '#6BBF95',
             animation: 'pulseDot 2.2s infinite',
           }} />
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#4FA77D' }}>Slightly ahead this week</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: feasible === false ? '#D8923A' : '#4FA77D' }}>
+            {feasible === false ? 'Week is tight' : 'On track this week'}
+          </span>
+        </div>
+        <div onClick={logout} style={{
+          marginTop: 10, textAlign: 'center', fontSize: 11, fontWeight: 700,
+          color: '#C9B89A', cursor: 'pointer', letterSpacing: '.3px',
+        }}>
+          Sign out
         </div>
       </div>
     </div>

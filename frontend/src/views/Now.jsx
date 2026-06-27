@@ -1,6 +1,25 @@
 import eatingImg from '../assets/mascots/eating.png';
 
-export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }) {
+const QUOTES = [
+  "Slow is smooth, smooth is fast.",
+  "One thing at a time.",
+  "Progress beats perfection.",
+  "Small steps, real momentum.",
+];
+
+export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, userName, feasible }) {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long' }) +
+    ' · ' + now.toLocaleDateString('en-US', { day: 'numeric', month: 'long' });
+  const quote = QUOTES[now.getDay() % QUOTES.length];
+  const bestMove = tasks.find(t => t.star && !t.checked) || tasks.find(t => !t.checked);
+  const statusText = feasible === false
+    ? "This week is tight — let's protect what matters."
+    : "You're on track this week";
+  const statusColor = feasible === false ? '#D8923A' : '#4FA77D';
+  const statusBg = feasible === false ? '#FBEFD9' : '#E2F2EA';
+  const dotColor = feasible === false ? '#ECA94E' : '#6BBF95';
+
   return (
     <div style={{ animation: 'fadeIn .45s ease' }}>
       {/* Hero */}
@@ -20,20 +39,20 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
         }}>
           <div style={{ minWidth: 300 }}>
             <div style={{ fontWeight: 700, fontSize: 13, letterSpacing: '1.5px', color: '#AD9B84', textTransform: 'uppercase' }}>
-              Saturday · 27 June
+              {dateStr}
             </div>
             <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 42, color: '#4A3526', lineHeight: 1.02, marginTop: 4 }}>
-              Hello, Yuki
+              Hello, {userName}
             </div>
             <div style={{ fontStyle: 'italic', fontWeight: 600, fontSize: 18, color: '#8C7A64', marginTop: 6 }}>
-              "Slow is smooth, smooth is fast."
+              "{quote}"
             </div>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 16,
-              background: '#E2F2EA', borderRadius: 999, padding: '8px 15px',
+              background: statusBg, borderRadius: 999, padding: '8px 15px',
             }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#6BBF95', animation: 'pulseDot 2.2s infinite' }} />
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#4FA77D' }}>You're slightly ahead this week</span>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: dotColor, animation: 'pulseDot 2.2s infinite' }} />
+              <span style={{ fontWeight: 700, fontSize: 14, color: statusColor }}>{statusText}</span>
             </div>
           </div>
           <img
@@ -55,13 +74,15 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
               ✦ Your one best move right now
             </div>
             <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 26, color: '#4A3526', margin: '8px 0 7px', lineHeight: 1.1 }}>
-              Add embeddings + vector search (pgvector)
+              {bestMove ? bestMove.t : '—'}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ background: '#F2E6D4', color: '#A8703E', fontWeight: 700, fontSize: 12, padding: '5px 11px', borderRadius: 999 }}>
-                Ship a production RAG app
-              </span>
-              <span style={{ color: '#8C7A64', fontWeight: 600, fontSize: 14 }}>· 45 min</span>
+              {bestMove?.meta && (
+                <span style={{ background: '#F2E6D4', color: '#A8703E', fontWeight: 700, fontSize: 12, padding: '5px 11px', borderRadius: 999 }}>
+                  {bestMove.meta.split('·')[1]?.trim() ?? bestMove.meta}
+                </span>
+              )}
+              {bestMove && <span style={{ color: '#8C7A64', fontWeight: 600, fontSize: 14 }}>· {bestMove.meta.split('·')[0]?.trim()}</span>}
             </div>
           </div>
           <div style={{
@@ -71,30 +92,32 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
             boxShadow: '0 12px 22px -10px rgba(150,108,64,.7)',
             cursor: 'pointer', whiteSpace: 'nowrap',
           }}>
-            Start · 45 min
+            Start · {bestMove?.meta?.split('·')[0]?.trim() ?? '—'}
           </div>
         </div>
       </div>
 
       {/* Today list */}
       <div style={{ padding: '26px 44px 40px' }}>
-        {/* Capacity banner */}
-        <div onClick={onOpenFeasibility} style={{
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 13,
-          background: '#FBEFD9', border: '1px solid #F3DCB0', borderRadius: 16,
-          padding: '13px 17px', marginBottom: 24,
-        }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: '50%', background: '#F6E1B8',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#D8923A', fontSize: 16, flex: '0 0 auto',
-          }}>◔</div>
-          <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 800, color: '#9A6B1E', fontSize: 14 }}>This week is a little full at your pace.</span>
-            {' '}<span style={{ color: '#B08440', fontSize: 13 }}>Tap to see what to protect.</span>
+        {/* Capacity banner — only when plan is infeasible */}
+        {feasible === false && (
+          <div onClick={onOpenFeasibility} style={{
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 13,
+            background: '#FBEFD9', border: '1px solid #F3DCB0', borderRadius: 16,
+            padding: '13px 17px', marginBottom: 24,
+          }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: '50%', background: '#F6E1B8',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#D8923A', fontSize: 16, flex: '0 0 auto',
+            }}>◔</div>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontWeight: 800, color: '#9A6B1E', fontSize: 14 }}>This week is a little full at your pace.</span>
+              {' '}<span style={{ color: '#B08440', fontSize: 13 }}>Tap to see what to protect.</span>
+            </div>
+            <span style={{ color: '#D8923A', fontWeight: 800 }}>→</span>
           </div>
-          <span style={{ color: '#D8923A', fontWeight: 800 }}>→</span>
-        </div>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 22, color: '#4A3526' }}>Today, in order</div>

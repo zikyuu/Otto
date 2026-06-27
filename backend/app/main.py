@@ -50,6 +50,7 @@ class PlanBody(BaseModel):
     profile: dict
     goals: list[dict]
     deadline_day: int = 4
+    user_id: str = ""
 
 class ReshuffleBody(BaseModel):
     profile: dict
@@ -71,6 +72,7 @@ def _profile_from(d: dict) -> Profile:
         free_hours_per_day=d.get("free_hours_per_day", 3.0),
         walls=[Wall(**w) for w in d.get("walls", [])],
         velocity=d.get("velocity", 0.8),
+        name=d.get("name", ""),
     )
 
 def _goals_from(items: list[dict]) -> list[Goal]:
@@ -124,7 +126,23 @@ def plan(body: PlanBody):
     goals = _goals_from(body.goals)
     tasks = _all_tasks(profile, goals)
     result = assess(tasks, profile, goals, body.deadline_day)
+    if body.user_id and goals:
+        try:
+            from app.db_helpers import save_plan
+            save_plan(body.user_id, profile, goals[0], tasks, result)
+        except Exception as e:
+            print(f"[db] save_plan failed (non-fatal): {e}")
     return {"plan": result.to_dict(), "tasks": [t.to_dict() for t in tasks]}
+
+@app.get("/api/me/plan")
+def get_my_plan(user_id: str):
+    try:
+        from app.db_helpers import load_plan
+        data = load_plan(user_id)
+        return data or {}
+    except Exception as e:
+        print(f"[db] load_plan failed: {e}")
+        return {}
 
 @app.post("/api/reshuffle")
 def reshuffle(body: ReshuffleBody):
@@ -141,6 +159,51 @@ def reshuffle(body: ReshuffleBody):
     msg = narrate("I fell behind, reshuffle my week", summary)
     return {"plan": summary, "narration": msg,
             "tasks": [t.to_dict() for t in tasks]}
+
+class AddGoalBody(BaseModel):
+    user_id: str
+    jd_text: str
+
+@app.get("/api/me/goals")
+def get_my_goals(user_id: str):
+    try:
+        from app.db_helpers import load_plan
+        data = load_plan(user_id)
+        return data.get("goals", []) if data else []
+    except Exception as e:
+        print(f"[db] get_my_goals failed: {e}")
+        return []
+
+@app.post("/api/me/goals")
+def add_my_goal(body: AddGoalBody):
+    g = parse_jd(body.jd_text)
+    try:
+        from app.db_helpers import add_goal_and_rebuild
+        return add_goal_and_rebuild(body.user_id, g.title, body.jd_text, g.required_skills, g.fit)
+    except Exception as e:
+        print(f"[db] add_goal failed: {e}")
+        return {"error": str(e)}
+
+@app.delete("/api/me/goals/{goal_id}")
+def delete_my_goal(goal_id: str, user_id: str):
+    try:
+        from app.db_helpers import delete_goal_and_rebuild
+        return delete_goal_and_rebuild(user_id, goal_id)
+    except Exception as e:
+        print(f"[db] delete_goal failed: {e}")
+        return {"error": str(e)}
+
+class TaskStatusBody(BaseModel):
+    status: str  # "done" | "todo"
+
+@app.patch("/api/tasks/{task_id}/status")
+def set_task_status(task_id: str, body: TaskStatusBody):
+    try:
+        from app.db_helpers import update_task_status
+        update_task_status(task_id, body.status)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.post("/api/chat")
 def chat(body: ChatBody):
