@@ -1,4 +1,5 @@
 import { BAR_DATA } from '../data/fixtures.js';
+import eatingImg from '../assets/mascots/eating.png';
 
 export default function Stats() {
   return (
@@ -39,7 +40,7 @@ export default function Stats() {
 
       {/* Recap */}
       <div style={{ position:'relative', background:'linear-gradient(135deg,#F5EEE1,#FBF1EC)', border:'1px solid #EADFCC', borderRadius:22, padding:'22px 24px', marginTop:16, overflow:'hidden' }}>
-        <img src="/mascots/eating.png" alt="happy otter" style={{ position:'absolute', right:14, bottom:-10, width:118, height:'auto', opacity:.96, filter:'drop-shadow(0 8px 12px rgba(110,84,54,.18))' }} />
+        <img src={eatingImg} alt="happy otter" style={{ position:'absolute', right:14, bottom:-10, width:118, height:'auto', opacity:.96, filter:'drop-shadow(0 8px 12px rgba(110,84,54,.18))' }} />
         <div style={{ fontWeight:800, fontSize:11, letterSpacing:'1px', color:'#A8703E' }}>REALISTIC RECAP</div>
         <div style={{ fontFamily:"'Quicksand'", fontWeight:700, fontSize:20, color:'#4A3526', margin:'7px 0 6px' }}>A genuinely good week.</div>
         <div style={{ position:'relative', fontSize:15, color:'#8C7A64', lineHeight:1.55, maxWidth:'74%' }}>

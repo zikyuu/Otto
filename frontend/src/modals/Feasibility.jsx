@@ -1,8 +1,10 @@
+import wiseImg from '../assets/mascots/wise.png';
+
 export default function Feasibility({ onChoose, onClose }) {
   return (
     <Overlay>
       <div style={{ width:'min(460px,90%)', background:'#fff', borderRadius:26, padding:30, boxShadow:'0 40px 80px -30px rgba(74,54,38,.6)', animation:'sheetUp .4s ease' }}>
-        <img src="/mascots/wise.png" alt="wise otter" style={{ width:104, height:'auto', margin:'-6px auto 0', display:'block', filter:'drop-shadow(0 8px 12px rgba(110,84,54,.2))' }} />
+        <img src={wiseImg} alt="wise otter" style={{ width:104, height:'auto', margin:'-6px auto 0', display:'block', filter:'drop-shadow(0 8px 12px rgba(110,84,54,.2))' }} />
         <div style={{ fontFamily:"'Quicksand'", fontWeight:700, fontSize:25, color:'#4A3526', margin:'16px 0 8px', lineHeight:1.15 }}>
           This week is overcommitted at your current pace.
         </div>

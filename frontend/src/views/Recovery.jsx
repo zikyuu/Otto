@@ -1,3 +1,5 @@
+import panickedImg from '../assets/mascots/panicked.png';
+
 export default function Recovery({ onExit }) {
   return (
     <div style={{ animation: 'fadeIn .45s ease' }}>
@@ -7,7 +9,7 @@ export default function Recovery({ onExit }) {
         display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap',
       }}>
         <img
-          src="/mascots/panicked.png" alt="panicked otter"
+          src={panickedImg} alt="panicked otter"
           style={{ width:138, height:'auto', flex:'0 0 auto', animation:'floatM 4s ease-in-out infinite', filter:'drop-shadow(0 10px 14px rgba(110,84,54,.22))' }}
         />
         <div style={{ minWidth: 280, flex: 1 }}>

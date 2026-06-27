@@ -1,3 +1,5 @@
+import eatingImg from '../assets/mascots/eating.png';
+
 export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }) {
   return (
     <div style={{ animation: 'fadeIn .45s ease' }}>
@@ -35,7 +37,7 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
             </div>
           </div>
           <img
-            src="/mascots/eating.png" alt="happy otter eating meatballs"
+            src={eatingImg} alt="happy otter eating meatballs"
             style={{ width: 190, height: 'auto', flex: '0 0 auto', animation: 'floatM 5.5s ease-in-out infinite', filter: 'drop-shadow(0 12px 16px rgba(110,84,54,.22))' }}
           />
         </div>
