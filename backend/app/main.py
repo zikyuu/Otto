@@ -19,6 +19,8 @@ import io
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.engine.gaps import derive_tasks
@@ -144,3 +146,17 @@ def chat(body: ChatBody):
     goals = _goals_from(body.goals) if body.goals else []
     review = direction_review([], goals[0]) if goals else ""
     return {"narration": narrate(body.message, body.plan_summary), "review": review}
+
+# ---- SPA static file serving ---------------------------------------------
+
+_DIST = Path(__file__).parent.parent.parent / "frontend" / "dist"
+
+if _DIST.exists():
+    app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="assets")
+
+@app.get("/{path:path}")
+def spa_fallback(path: str):
+    candidate = _DIST / path
+    if candidate.is_file():
+        return FileResponse(str(candidate))
+    return FileResponse(str(_DIST / "index.html"))
