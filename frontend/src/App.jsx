@@ -13,6 +13,7 @@ export default function App() {
   const [freeHours, setFreeHours] = useState(3);
 
   const [profile, setProfile] = useState(null);
+  const [resumeReady, setResumeReady] = useState(false); // true once file parsed
   const [goals, setGoals] = useState([]);
   const [plan, setPlan] = useState(null);
   const [tasks, setTasks] = useState([]);
@@ -29,15 +30,30 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
-  async function buildPlan() {
+  async function handleResumeFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
     setLoading(true);
     try {
-      const p = await fetch(`${API}/api/profile`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resume_text: resume }),
+      const form = new FormData();
+      form.append("file", file);
+      const p = await fetch(`${API}/api/parse-resume-file`, {
+        method: "POST", body: form,
       }).then((r) => r.json());
       p.walls = walls;
       p.free_hours_per_day = freeHours;
+      setProfile(p);
+      setResumeReady(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function buildPlan() {
+    setLoading(true);
+    try {
+      if (!resumeReady || !profile) return;
+      const p = { ...profile, walls, free_hours_per_day: freeHours };
       setProfile(p);
 
       const g = await fetch(`${API}/api/goal`, {
@@ -87,9 +103,18 @@ export default function App() {
       {screen === "setup" && (
         <div style={ui.setup}>
           <Field label="Your résumé">
-            <textarea className="mono" style={ui.area} value={resume}
-              onChange={(e) => setResume(e.target.value)} rows={5}
-              placeholder="Paste your résumé…" />
+            <div style={ui.uploadRow}>
+              <label style={{...ui.uploadBtn, ...(resumeReady ? ui.uploadBtnDone : {})}}>
+                {loading ? "Parsing…" : resumeReady ? "✓ Resume parsed" : "Upload PDF"}
+                <input type="file" accept=".pdf,.txt" onChange={handleResumeFile}
+                  style={{ display: "none" }} />
+              </label>
+              {resumeReady && (
+                <button style={ui.clearBtn} onClick={() => { setResumeReady(false); setProfile(null); }}>
+                  ✕ clear
+                </button>
+              )}
+            </div>
           </Field>
           <Field label="A job you want">
             <textarea className="mono" style={ui.area} value={jd}
@@ -104,7 +129,7 @@ export default function App() {
           <div style={ui.wallsRow}>
             <span style={ui.wallsLabel}>Your week: {walls.length} fixed blocks loaded</span>
           </div>
-          <button className="primary" onClick={buildPlan} disabled={loading}
+          <button className="primary" onClick={buildPlan} disabled={loading || !resumeReady}
             style={{ marginTop: 8 }}>
             {loading ? "Building…" : "Build my plan →"}
           </button>
@@ -179,6 +204,10 @@ const ui = {
   setup: { background: "var(--surface)", border: "0.5px solid var(--line)", borderRadius: 12, padding: 18 },
   fieldLabel: { display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6 },
   area: { width: "100%", border: "0.5px solid var(--line)", borderRadius: 8, padding: 10, fontSize: 12, resize: "vertical", lineHeight: 1.5 },
+  uploadRow: { display: "flex", alignItems: "center", gap: 8 },
+  uploadBtn: { display: "inline-block", cursor: "pointer", background: "var(--surface)", border: "0.5px solid var(--line)", borderRadius: 8, padding: "9px 14px", fontSize: 14, color: "var(--ink)", transition: "background .15s ease" },
+  uploadBtnDone: { background: "var(--accent-soft)", borderColor: "var(--accent)", color: "var(--accent)", fontWeight: 600 },
+  clearBtn: { fontSize: 12, padding: "4px 8px", color: "var(--muted)", borderColor: "var(--line)" },
   wallsRow: { marginBottom: 6 },
   wallsLabel: { fontSize: 12, color: "var(--muted)" },
   planView: {},
