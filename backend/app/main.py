@@ -15,14 +15,16 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+import io
+
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.engine.gaps import derive_tasks
 from app.engine.feasibility import assess
 from app.engine.scheduler import schedule
-from app.llm.extract import parse_resume, parse_jd, narrate
+from app.llm.extract import parse_resume, parse_jd, narrate, direction_review
 from app.models import Goal, Profile, Skill, Status, Task, Wall
 
 DEMO = json.loads((Path(__file__).parent / "demo_data" / "demo.json").read_text())
@@ -55,6 +57,7 @@ class ReshuffleBody(BaseModel):
 class ChatBody(BaseModel):
     message: str
     plan_summary: dict = {}
+    goals: list[dict] = []
 
 
 # ---- helpers --------------------------------------------------------------
@@ -92,6 +95,21 @@ def profile(body: ResumeBody):
     p = parse_resume(body.resume_text)
     return p.to_dict()
 
+@app.post("/api/parse-resume-file")
+async def parse_resume_file(file: UploadFile = File(...)):
+    content = await file.read()
+    if file.filename and file.filename.lower().endswith(".pdf"):
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(content))
+            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception:
+            text = content.decode("utf-8", errors="ignore")
+    else:
+        text = content.decode("utf-8", errors="ignore")
+    p = parse_resume(text)
+    return p.to_dict()
+
 @app.post("/api/goal")
 def goal(body: JDBody):
     g = parse_jd(body.jd_text, goal_id=body.goal_id)
@@ -123,4 +141,6 @@ def reshuffle(body: ReshuffleBody):
 
 @app.post("/api/chat")
 def chat(body: ChatBody):
-    return {"narration": narrate(body.message, body.plan_summary)}
+    goals = _goals_from(body.goals) if body.goals else []
+    review = direction_review([], goals[0]) if goals else ""
+    return {"narration": narrate(body.message, body.plan_summary), "review": review}
