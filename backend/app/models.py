@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 
 class Status(str, Enum):
@@ -132,3 +132,10 @@ class CompletionEvent:
     planned_minutes: int
     done: bool
     ts: str = ""
+
+
+@dataclass
+class Resource:
+    title: str
+    url: str
+    type: Literal["article", "video", "leetcode", "other"]
