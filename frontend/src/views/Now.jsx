@@ -1,6 +1,71 @@
+import { useState } from 'react';
 import eatingImg from '../assets/mascots/eating.png';
 
-export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }) {
+const QUOTES = [
+  "Slow is smooth, smooth is fast.",
+  "One thing at a time.",
+  "Progress beats perfection.",
+  "Small steps, real momentum.",
+];
+
+const TYPE_ICON = { leetcode: '🔗', video: '🎥', article: '📄', other: '🔗' };
+
+export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, userName, feasible, role }) {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long' }) +
+    ' · ' + now.toLocaleDateString('en-US', { day: 'numeric', month: 'long' });
+  const quote = QUOTES[now.getDay() % QUOTES.length];
+  const bestMove = tasks.find(t => t.star && !t.checked) || tasks.find(t => !t.checked);
+  const statusText = feasible === false
+    ? "This week is tight — let's protect what matters."
+    : "You're on track this week";
+  const statusColor = feasible === false ? '#D8923A' : '#4FA77D';
+  const statusBg = feasible === false ? '#FBEFD9' : '#E2F2EA';
+  const dotColor = feasible === false ? '#ECA94E' : '#6BBF95';
+
+  const [expanded, setExpanded] = useState(new Set());
+  const [resources, setResources] = useState({});
+  const [loadingRes, setLoadingRes] = useState(new Set());
+
+  async function fetchResources(taskKey, skill) {
+    if (!skill) {
+      setResources(prev => ({ ...prev, [taskKey]: [] }));
+      return;
+    }
+    const cacheKey = `resources:${skill}:${role}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      setResources(prev => ({ ...prev, [taskKey]: JSON.parse(cached) }));
+      return;
+    }
+    setLoadingRes(prev => { const s = new Set(prev); s.add(taskKey); return s; });
+    try {
+      const resp = await fetch(`/api/resources?skill=${encodeURIComponent(skill)}&role=${encodeURIComponent(role || '')}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      localStorage.setItem(cacheKey, JSON.stringify(data));
+      setResources(prev => ({ ...prev, [taskKey]: data }));
+    } catch (err) {
+      console.error('fetchResources failed:', err);
+      setResources(prev => ({ ...prev, [taskKey]: null }));
+    } finally {
+      setLoadingRes(prev => { const s = new Set(prev); s.delete(taskKey); return s; });
+    }
+  }
+
+  function toggleExpand(taskKey, skill) {
+    const isOpen = expanded.has(taskKey);
+    setExpanded(prev => {
+      const s = new Set(prev);
+      if (s.has(taskKey)) s.delete(taskKey);
+      else s.add(taskKey);
+      return s;
+    });
+    if (!isOpen && resources[taskKey] === undefined && !loadingRes.has(taskKey)) {
+      fetchResources(taskKey, skill);
+    }
+  }
+
   return (
     <div style={{ animation: 'fadeIn .45s ease' }}>
       {/* Hero */}
@@ -58,10 +123,12 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
               Add embeddings + vector search (pgvector)
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ background: '#F2E6D4', color: '#A8703E', fontWeight: 700, fontSize: 12, padding: '5px 11px', borderRadius: 999 }}>
-                Ship a production RAG app
-              </span>
-              <span style={{ color: '#8C7A64', fontWeight: 600, fontSize: 14 }}>· 45 min</span>
+              {bestMove?.meta && (
+                <span style={{ background: '#F2E6D4', color: '#A8703E', fontWeight: 700, fontSize: 12, padding: '5px 11px', borderRadius: 999 }}>
+                  {bestMove.meta.split('·')[1]?.trim() ?? bestMove.meta}
+                </span>
+              )}
+              {bestMove && <span style={{ color: '#8C7A64', fontWeight: 600, fontSize: 14 }}>· {bestMove?.meta?.split('·')[0]?.trim()}</span>}
             </div>
           </div>
           <div style={{
@@ -105,23 +172,76 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {tasks.map((t) => (
-            <div key={t.k} onClick={() => onToggle(t.k)} style={{
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14,
-              background: '#fff', border: '1px solid #ECE3D4', borderRadius: 16,
-              padding: '14px 17px', boxShadow: '0 6px 16px -14px rgba(74,54,38,.5)',
-            }}>
-              {t.checked
-                ? <div style={{ width:24,height:24,borderRadius:8,background:'#6BBF95',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flex:'0 0 auto' }}>✓</div>
-                : <div style={{ width:24,height:24,borderRadius:8,border:'2px solid #D9CAB2',flex:'0 0 auto' }} />
-              }
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily:"'Quicksand'", fontWeight:600, fontSize:16, color: t.checked ? '#B6A48C' : '#4A3526', textDecoration: t.checked ? 'line-through' : 'none' }}>{t.t}</div>
-                <div style={{ fontSize:12.5, color:'#AD9B84', marginTop:1 }}>{t.meta}</div>
+          {tasks.map((t) => {
+            const skill = t.skill ?? t.meta?.split('·')[1]?.trim() ?? '';
+            const isExpanded = expanded.has(t.k);
+            const isLoading = loadingRes.has(t.k);
+            const taskResources = resources[t.k] ?? [];
+            return (
+              <div key={t.k} style={{
+                background: '#fff', border: '1px solid #ECE3D4', borderRadius: 16,
+                boxShadow: '0 6px 16px -14px rgba(74,54,38,.5)', overflow: 'hidden',
+              }}>
+                {/* Toggle row */}
+                <div onClick={() => onToggle(t.k)} style={{
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '14px 17px',
+                }}>
+                  {t.checked
+                    ? <div style={{ width:24,height:24,borderRadius:8,background:'#6BBF95',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flex:'0 0 auto' }}>✓</div>
+                    : <div style={{ width:24,height:24,borderRadius:8,border:'2px solid #D9CAB2',flex:'0 0 auto' }} />
+                  }
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily:"'Quicksand'", fontWeight:600, fontSize:16, color: t.checked ? '#B6A48C' : '#4A3526', textDecoration: t.checked ? 'line-through' : 'none' }}>{t.t}</div>
+                    <div style={{ fontSize:12.5, color:'#AD9B84', marginTop:1 }}>{t.meta}</div>
+                  </div>
+                  {t.star && !t.checked && <span style={{ color:'#A8703E', fontSize:14, fontWeight:800 }}>★ now</span>}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleExpand(t.k, skill); }}
+                    style={{
+                      background: 'none', border: '1px solid #E1D5C0', borderRadius: 999,
+                      padding: '4px 10px', fontSize: 11, fontWeight: 700, color: '#8C7A64',
+                      cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                    }}
+                  >
+                    {isExpanded ? 'resources ▲' : 'resources ▼'}
+                  </button>
+                </div>
+                {/* Resource expand panel */}
+                {isExpanded && (
+                  <div style={{ padding: '0 17px 14px', borderTop: '1px solid #F0E8DC' }}>
+                    {isLoading && (
+                      <div style={{ fontSize: 12, color: '#AD9B84', paddingTop: 10 }}>Finding resources…</div>
+                    )}
+                    {!isLoading && taskResources.length === 0 && (
+                      <div style={{ fontSize: 12, color: '#AD9B84', paddingTop: 10 }}>No resources found.</div>
+                    )}
+                    {!isLoading && taskResources.length > 0 && (
+                      <div style={{ paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {taskResources.map((r) => (
+                          <a
+                            key={r.url}
+                            href={r.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              fontSize: 12.5, color: '#5A7D6F', textDecoration: 'none',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <span>{TYPE_ICON[r.type] ?? '🔗'}</span>
+                            <span style={{ textDecoration: 'underline', textUnderlineOffset: 2 }}>{r.title}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              {t.star && !t.checked && <span style={{ color:'#A8703E', fontSize:14, fontWeight:800 }}>★ now</span>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 
 class Status(str, Enum):
@@ -132,3 +132,14 @@ class CompletionEvent:
     planned_minutes: int
     done: bool
     ts: str = ""
+
+
+@dataclass
+class Resource:
+    """A curated learning resource (article, video, or LeetCode problem) linked to a skill task."""
+    title: str
+    url: str
+    type: Literal["article", "video", "leetcode", "other"]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
