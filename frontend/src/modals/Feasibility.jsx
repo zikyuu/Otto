@@ -1,10 +1,6 @@
 import wiseImg from '../assets/mascots/wise.png';
 
-export default function Feasibility({ onChoose, onClose, tradeoff, plannedHours, capacityHours }) {
-  const reason = tradeoff?.reason
-    ?? `You've planned ~${plannedHours ?? '?'}h this week; your honest pace is ~${capacityHours ?? '?'}h. Let's protect what matters before anything slips.`;
-  const hasOptions = tradeoff?.options?.length > 0;
-
+export default function Feasibility({ onChoose, onClose }) {
   return (
     <Overlay>
       <div style={{ width:'min(460px,90%)', background:'#fff', borderRadius:26, padding:30, boxShadow:'0 40px 80px -30px rgba(74,54,38,.6)', animation:'sheetUp .4s ease' }}>
@@ -13,15 +9,13 @@ export default function Feasibility({ onChoose, onClose, tradeoff, plannedHours,
           This week is overcommitted at your current pace.
         </div>
         <div style={{ fontSize:15, color:'#8C7A64', lineHeight:1.55 }}>
-          {reason}
+          You've planned ~26 focused hours; your honest recent pace is ~17. That's okay — let's protect what matters before anything slips.
         </div>
         <div style={{ display:'flex', gap:11, marginTop:22 }}>
-          {hasOptions && (
-            <div onClick={onChoose} style={{ flex:1, textAlign:'center', cursor:'pointer', background:'linear-gradient(135deg,#C0894F,#A8703E)', color:'#fff', fontFamily:"'Quicksand'", fontWeight:700, fontSize:15, padding:14, borderRadius:15 }}>
-              Help me choose
-            </div>
-          )}
-          <div onClick={onClose} style={{ cursor:'pointer', textAlign:'center', color:'#8C7A64', fontFamily:"'Quicksand'", fontWeight:700, fontSize:15, padding:'14px 20px', borderRadius:15, border:'1.5px solid #E9DECC', flex: hasOptions ? 'none' : 1 }}>
+          <div onClick={onChoose} style={{ flex:1, textAlign:'center', cursor:'pointer', background:'linear-gradient(135deg,#C0894F,#A8703E)', color:'#fff', fontFamily:"'Quicksand'", fontWeight:700, fontSize:15, padding:14, borderRadius:15 }}>
+            Help me choose
+          </div>
+          <div onClick={onClose} style={{ cursor:'pointer', textAlign:'center', color:'#8C7A64', fontFamily:"'Quicksand'", fontWeight:700, fontSize:15, padding:'14px 20px', borderRadius:15, border:'1.5px solid #E9DECC' }}>
             Not now
           </div>
         </div>

@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     session_id  TEXT,
     free_hours_per_day FLOAT NOT NULL DEFAULT 3.0,
     velocity    FLOAT NOT NULL DEFAULT 0.8,
+    name        TEXT DEFAULT '',
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS profiles_session_id_idx ON profiles (session_id);

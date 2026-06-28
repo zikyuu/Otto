@@ -1,29 +1,4 @@
 import { useState } from 'react';
-import { GOALS } from '../data/fixtures.js';
-
-function mapApiGoal(apiGoal, tasks) {
-  const goalTasks = (tasks ?? []).filter(t => t.goal_id === apiGoal.id);
-  const done = goalTasks.filter(t => t.status === 'done' || t.checked).length;
-  const pct = goalTasks.length ? Math.round((done / goalTasks.length) * 100) : 0;
-  return {
-    id: apiGoal.id,
-    title: apiGoal.title,
-    cat: 'JOB TARGET',
-    tag: 'skill',
-    pct,
-    label: `${pct}%`,
-    accent: '#A8703E',
-    subnote: `${done} of ${goalTasks.length} tasks done`,
-    direction: `Focus on: ${(apiGoal.required_skills ?? []).slice(0, 3).join(', ')}.`,
-    date: `Built ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
-    sources: (apiGoal.required_skills ?? []).map(s => ({ name: s })),
-    subs: goalTasks.map(t => ({
-      id: t.id,
-      t: t.title?.replace(/^Build skill:\s*/i, '') ?? t.t,
-      done: t.status === 'done' || t.checked,
-    })),
-  };
-}
 
 const FEASIBILITY_STYLE = {
   'on-track':  { bg:'#E2F2EA', border:'#C9E6D5', dot:'#6BBF95', text:'#3D8A62', label:'On track' },
@@ -33,8 +8,8 @@ const FEASIBILITY_STYLE = {
 
 function tagStyle(tag) {
   return tag === 'life'
-    ? { background: '#E2F2EA', color: '#4FA77D' }
-    : { background: '#F2E6D4', color: '#A8703E' };
+    ? { background:'#E2F2EA', color:'#4FA77D' }
+    : { background:'#F2E6D4', color:'#A8703E' };
 }
 
 function AiReviewPanel({ review, onClose }) {
@@ -77,20 +52,65 @@ function AiReviewPanel({ review, onClose }) {
   );
 }
 
+function mapApiGoal(apiGoal, tasks) {
+  const goalTasks = (tasks ?? []).filter(t => t.goal_id === apiGoal.id);
+  const done = goalTasks.filter(t => t.status === 'done' || t.checked).length;
+  const pct = goalTasks.length ? Math.round((done / goalTasks.length) * 100) : 0;
+  return {
+    id: apiGoal.id,
+    title: apiGoal.title,
+    cat: 'JOB TARGET',
+    tag: 'skill',
+    pct,
+    label: `${pct}%`,
+    accent: '#A8703E',
+    subnote: `${done} of ${goalTasks.length} tasks done`,
+    direction: `Focus on: ${(apiGoal.required_skills ?? []).slice(0, 3).join(', ')}.`,
+    date: `Built ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+    sources: (apiGoal.required_skills ?? []).map(s => ({ name: s })),
+    subs: goalTasks.map(t => ({
+      id: t.id,
+      t: t.title?.replace(/^Build skill:\s*/i, '') ?? t.t,
+      done: t.status === 'done' || t.checked,
+    })),
+  };
+}
+
 export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiTasks = [], onAddGoal, onDeleteGoal }) {
-  const [aiReview,  setAiReview]  = useState(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError,   setAiError]   = useState('');
-  const [adding,    setAdding]    = useState(false);
-  const [newJd,     setNewJd]     = useState('');
+  const [adding, setAdding] = useState(false);
+  const [newJd, setNewJd] = useState('');
   const [addLoading, setAddLoading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [aiReview, setAiReview] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
 
   const mappedApiGoals = apiGoals.map(g => mapApiGoal(g, apiTasks));
-  const goals = mappedApiGoals.length > 0 ? mappedApiGoals : GOALS;
+  const goals = mappedApiGoals;
   const isReal = mappedApiGoals.length > 0;
 
+  async function handleAdd() {
+    if (!newJd.trim() || addLoading) return;
+    setAddLoading(true);
+    try {
+      await onAddGoal(newJd.trim());
+      setNewJd('');
+      setAdding(false);
+    } catch {}
+    finally { setAddLoading(false); }
+  }
+
+  async function handleDelete(e, goalId) {
+    e.stopPropagation();
+    if (deletingId) return;
+    setDeletingId(goalId);
+    try { await onDeleteGoal(goalId); }
+    catch {}
+    finally { setDeletingId(null); }
+  }
+
   async function handleReview() {
+    if (!isReal) return;
     setAiLoading(true);
     setAiError('');
     setAiReview(null);
@@ -98,7 +118,10 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
       const res = await fetch('/api/ai/review-goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goals, timeline_weeks: 8 }),
+        body: JSON.stringify({
+          goals: apiGoals.map(g => { const m = mapApiGoal(g, apiTasks); return { id: m.id, title: m.title, cat: m.cat, pct: m.pct, label: m.label, subnote: m.subnote, direction: m.direction, subs: m.subs }; }),
+          timeline_weeks: 8,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -114,68 +137,44 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
     }
   }
 
-  async function handleAdd() {
-    if (!newJd.trim() || addLoading) return;
-    setAddLoading(true);
-    try { await onAddGoal?.(newJd.trim()); setNewJd(''); setAdding(false); }
-    catch {}
-    finally { setAddLoading(false); }
-  }
-
-  async function handleDelete(e, goalId) {
-    e.stopPropagation();
-    if (deletingId) return;
-    setDeletingId(goalId);
-    try { await onDeleteGoal?.(goalId); }
-    catch {}
-    finally { setDeletingId(null); }
-  }
-
   return (
-    <div style={{ padding:'32px 44px 40px', animation:'fadeIn .45s ease' }}>
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, flexWrap:'wrap', marginBottom:4 }}>
+    <div style={{ padding: '32px 44px 40px', animation: 'fadeIn .45s ease' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
         <div>
-          <div style={{ fontFamily:"'Quicksand'", fontWeight:700, fontSize:30, color:'#4A3526' }}>Your goals</div>
-          <div style={{ fontSize:14, color:'#8C7A64', marginTop:3 }}>Long-term goals grow as a bar. Tap one to see the small steps.</div>
+          <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 30, color: '#4A3526' }}>Your goals</div>
+          <div style={{ fontSize: 14, color: '#8C7A64', marginTop: 3 }}>Long-term goals grow as a bar. Tap one to see the small steps.</div>
         </div>
-        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-          {isReal && !adding && onAddGoal && (
-            <div onClick={() => setAdding(true)} style={{
-              cursor:'pointer', display:'flex', alignItems:'center', gap:7,
-              background:'linear-gradient(135deg,#C0894F,#A8703E)', color:'#fff',
-              fontFamily:"'Quicksand'", fontWeight:700, fontSize:14,
-              padding:'10px 18px', borderRadius:13,
-              boxShadow:'0 8px 16px -8px rgba(150,108,64,.6)',
-            }}>
-              + Add job target
-            </div>
-          )}
-          <button
-            onClick={handleReview}
-            disabled={aiLoading}
-            style={{
-              padding:'10px 20px', borderRadius:999, border:'none',
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {isReal && (
+            <button onClick={handleReview} disabled={aiLoading} style={{
+              padding: '10px 20px', borderRadius: 999, border: 'none',
               background: aiLoading ? '#F1E8D7' : '#A8703E',
               color: aiLoading ? '#AD9B84' : '#fff',
-              fontFamily:"'Quicksand'", fontWeight:700, fontSize:14,
+              fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 14,
               cursor: aiLoading ? 'default' : 'pointer',
-              display:'flex', alignItems:'center', gap:8,
+              display: 'flex', alignItems: 'center', gap: 8,
               boxShadow: aiLoading ? 'none' : '0 6px 16px -8px rgba(168,112,62,.7)',
-              transition:'all .2s ease',
-            }}
-          >
-            {aiLoading
-              ? <><span style={{ animation:'ringPulse 1.1s ease infinite' }}>✦</span> Reviewing…</>
-              : <>✦ Review with AI</>
-            }
-          </button>
+              transition: 'all .2s ease',
+            }}>
+              {aiLoading ? <><span style={{ animation: 'ringPulse 1.1s ease infinite' }}>✦</span> Reviewing…</> : <>✦ Review with AI</>}
+            </button>
+          )}
+          {isReal && !adding && (
+            <div onClick={() => setAdding(true)} style={{
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+              background: 'linear-gradient(135deg,#C0894F,#A8703E)', color: '#fff',
+              fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 14,
+              padding: '10px 18px', borderRadius: 13,
+              boxShadow: '0 8px 16px -8px rgba(150,108,64,.6)',
+            }}>+ Add job target</div>
+          )}
         </div>
       </div>
 
       {aiError && (
-        <div style={{ background:'#FBEFD9', border:'1px solid #F3DCB0', borderRadius:14, padding:'10px 16px', marginBottom:16, fontSize:13, color:'#9A6B1E', display:'flex', gap:8 }}>
+        <div style={{ background: '#FBEFD9', border: '1px solid #F3DCB0', borderRadius: 14, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#9A6B1E', display: 'flex', gap: 8 }}>
           <span>⚠</span><span>{aiError}</span>
-          <span onClick={() => setAiError('')} style={{ marginLeft:'auto', cursor:'pointer', color:'#B6A48C' }}>×</span>
+          <span onClick={() => setAiError('')} style={{ marginLeft: 'auto', cursor: 'pointer', color: '#B6A48C' }}>×</span>
         </div>
       )}
 
@@ -183,21 +182,12 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
 
       {/* Add job target form */}
       {adding && (
-        <div style={{
-          marginTop: 0, marginBottom: 18, background: '#fff', border: '1.5px solid #A8703E',
-          borderRadius: 22, padding: 22, boxShadow: '0 12px 30px -24px rgba(74,54,38,.5)',
-        }}>
-          <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 16, color: '#4A3526', marginBottom: 12 }}>
-            Paste the job description
-          </div>
+        <div style={{ marginTop: 22, background: '#fff', border: '1.5px solid #A8703E', borderRadius: 22, padding: 22, boxShadow: '0 12px 30px -24px rgba(74,54,38,.5)' }}>
+          <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 16, color: '#4A3526', marginBottom: 12 }}>Paste the job description</div>
           <textarea
             rows={5} value={newJd} onChange={e => setNewJd(e.target.value)}
             placeholder="Paste the full job description here…"
-            style={{
-              width: '100%', boxSizing: 'border-box', border: '1.5px solid #ECE3D4',
-              borderRadius: 12, padding: '12px 14px', fontSize: 13, lineHeight: 1.6,
-              resize: 'vertical', fontFamily: 'inherit', color: '#4A3526', outline: 'none',
-            }}
+            style={{ width: '100%', boxSizing: 'border-box', border: '1.5px solid #ECE3D4', borderRadius: 12, padding: '12px 14px', fontSize: 13, lineHeight: 1.6, resize: 'vertical', fontFamily: 'inherit', color: '#4A3526', outline: 'none' }}
             onFocus={e => e.target.style.borderColor = '#A8703E'}
             onBlur={e => e.target.style.borderColor = '#ECE3D4'}
           />
@@ -241,26 +231,19 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
             borderRadius: 22, padding: 22, boxShadow: '0 12px 30px -24px rgba(74,54,38,.5)',
             position: 'relative',
           }}>
-            {/* Delete button — only on real job targets */}
-            {g.tag === 'skill' && isReal && onDeleteGoal && (
-              <div
-                onClick={e => handleDelete(e, g.id)}
-                style={{
-                  position: 'absolute', top: 14, right: 14,
-                  width: 26, height: 26, borderRadius: '50%',
-                  background: deletingId === g.id ? '#E9DCC8' : '#F5EEE1',
-                  color: '#B6A48C', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                  transition: 'background .15s',
-                }}
-              >
+            {isReal && onDeleteGoal && (
+              <div onClick={e => handleDelete(e, g.id)} style={{
+                position: 'absolute', top: 14, right: 14,
+                width: 26, height: 26, borderRadius: '50%',
+                background: deletingId === g.id ? '#E9DCC8' : '#F5EEE1',
+                color: '#B6A48C', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}>
                 {deletingId === g.id ? '…' : '×'}
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingRight: g.tag === 'skill' && isReal ? 32 : 0 }}>
-              <span style={{ fontWeight: 800, fontSize: 10, letterSpacing: '.5px', padding: '4px 9px', borderRadius: 7, ...tagStyle(g.tag) }}>
-                {g.cat}
-              </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingRight: isReal ? 32 : 0 }}>
+              <span style={{ fontWeight: 800, fontSize: 10, letterSpacing: '.5px', padding: '4px 9px', borderRadius: 7, ...tagStyle(g.tag) }}>{g.cat}</span>
               <span style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 20, color: g.accent }}>{g.label}</span>
             </div>
             <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 19, color: '#4A3526', margin: '13px 0 14px', lineHeight: 1.15 }}>{g.title}</div>
@@ -280,17 +263,15 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
 
 export function GoalDetail({ goalId, checks, onToggleSub, onClose, apiGoals = [], apiTasks = [] }) {
   const mappedApiGoals = apiGoals.map(g => mapApiGoal(g, apiTasks));
-  const g = (mappedApiGoals.length > 0 ? mappedApiGoals : GOALS).find(x => x.id === goalId)
-    || (mappedApiGoals.length > 0 ? mappedApiGoals[0] : GOALS[0]);
+  const g = mappedApiGoals.find(x => x.id === goalId) || mappedApiGoals[0];
   if (!g) return null;
+
   return (
     <div style={{ padding: '28px 44px 40px', animation: 'fadeIn .4s ease' }}>
       <div onClick={onClose} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontWeight: 700, fontSize: 14, color: '#8C7A64', marginBottom: 18 }}>
         ← All goals
       </div>
-      <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: '.5px', padding: '4px 10px', borderRadius: 7, ...tagStyle(g.tag) }}>
-        {g.cat}
-      </span>
+      <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: '.5px', padding: '4px 10px', borderRadius: 7, ...tagStyle(g.tag) }}>{g.cat}</span>
       <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 32, color: '#4A3526', margin: '11px 0 16px', lineHeight: 1.08 }}>{g.title}</div>
 
       <div style={{ background: '#fff', border: '1px solid #ECE3D4', borderRadius: 20, padding: '20px 22px', boxShadow: '0 12px 30px -24px rgba(74,54,38,.5)' }}>
@@ -308,10 +289,7 @@ export function GoalDetail({ goalId, checks, onToggleSub, onClose, apiGoals = []
           <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#F6E1B8', color: '#D8923A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flex: '0 0 auto' }}>↗</div>
           <div>
             <div style={{ fontWeight: 800, fontSize: 11, letterSpacing: '1px', color: '#D8923A' }}>DIRECTION CHECK</div>
-            <div style={{ fontSize: 15, color: '#7A5A22', lineHeight: 1.5, marginTop: 4 }}>
-              {g.direction}{' '}
-              <span style={{ color: '#D8923A', fontWeight: 800, textDecoration: 'underline', cursor: 'pointer' }}>see evidence</span>
-            </div>
+            <div style={{ fontSize: 15, color: '#7A5A22', lineHeight: 1.5, marginTop: 4 }}>{g.direction}</div>
           </div>
         </div>
       </div>

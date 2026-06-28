@@ -1,8 +1,9 @@
 import { Overlay } from './Feasibility.jsx';
 
-export default function Tradeoff({ pick, onPick, onClose, tradeoff }) {
-  const options = tradeoff?.options ?? [];
-  const chosen = options.find(o => o.goal_id === pick);
+export default function Tradeoff({ pick, onPick, onClose }) {
+  const msg = pick === 'onsite'
+    ? "Locked on the onsite. I'll trim the applications to quick one-click applies."
+    : "Locked on the applications. I'll compress onsite prep into one focused drill.";
 
   return (
     <Overlay>
@@ -15,22 +16,26 @@ export default function Tradeoff({ pick, onPick, onClose, tradeoff }) {
         </div>
 
         <div style={{ display:'flex', gap:14, marginTop:22, flexWrap:'wrap' }}>
-          {options.map((opt, i) => (
-            <OptionCard
-              key={opt.goal_id}
-              label={i === 0 ? 'HIGHEST PRIORITY' : 'ALSO NEEDED'}
-              labelColor={i === 0 ? '#A8703E' : '#D8923A'}
-              title={opt.label}
-              sub={`~${Math.round(opt.minutes / 60)}h of work remaining`}
-              chosen={pick === opt.goal_id}
-              onPick={() => onPick(opt.goal_id)}
-            />
-          ))}
+          <OptionCard
+            label="THURSDAY"
+            title="Prep for the onsite"
+            sub="An interview you already have."
+            chosen={pick === 'onsite'}
+            onPick={() => onPick('onsite')}
+          />
+          <OptionCard
+            label="CLOSES FRIDAY"
+            title="Apply to 3 roles"
+            sub="Windows won't reopen."
+            chosen={pick === 'apply'}
+            onPick={() => onPick('apply')}
+            labelColor="#D8923A"
+          />
         </div>
 
         {pick && (
           <div style={{ marginTop:16, background:'#E2F2EA', borderRadius:14, padding:'13px 15px', fontSize:14, color:'#4FA77D', fontWeight:700 }}>
-            Locking in: {chosen?.label}. The rest gets compressed — nothing is dropped.
+            {msg}
           </div>
         )}
 
