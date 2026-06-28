@@ -191,6 +191,7 @@ export default function App() {
     k: t.id,
     t: t.title.replace(/^Build skill:\s*/i, ''),
     meta: `${t.full_minutes} min · ${t.skill_served}`,
+    skill: t.skill_served,
     done: t.status === 'done',
     star: t.importance >= 0.7,
     checked: checks[t.id] ?? false,

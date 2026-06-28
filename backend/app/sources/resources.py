@@ -6,7 +6,10 @@ same defensive pattern as _exa_skills() in gaps.py.
 """
 from __future__ import annotations
 
+import logging
 import os
+
+_log = logging.getLogger(__name__)
 
 from app.models import Resource
 
@@ -45,6 +48,14 @@ def fetch_resources(skill: str, role: str) -> list[Resource]:
                     url=r.url,
                     type=_classify_url(r.url),
                 ))
-        return resources[:6]
+        # Deduplicate by URL (two queries may surface the same resource)
+        seen: set[str] = set()
+        unique: list[Resource] = []
+        for r in resources:
+            if r.url not in seen:
+                seen.add(r.url)
+                unique.append(r)
+        return unique[:6]
     except Exception:
+        _log.exception("fetch_resources failed for skill=%r role=%r", skill, role)
         return []

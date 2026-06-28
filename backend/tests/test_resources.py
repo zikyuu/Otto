@@ -44,28 +44,40 @@ def test_fetch_resources_returns_empty_without_key(monkeypatch):
 
 def test_fetch_resources_returns_resources(monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "fake-key")
-    mock_result = MagicMock()
-    mock_result.results = [
+    # Return distinct URLs per query so dedup doesn't collapse them.
+    mock_result_q1 = MagicMock()
+    mock_result_q1.results = [
         MagicMock(title="Two Sum", url="https://leetcode.com/problems/two-sum/"),
         MagicMock(title="Algo Guide", url="https://neetcode.io/roadmap"),
     ]
+    mock_result_q2 = MagicMock()
+    mock_result_q2.results = [
+        MagicMock(title="Three Sum", url="https://leetcode.com/problems/three-sum/"),
+        MagicMock(title="Big-O Cheat Sheet", url="https://bigocheatsheet.com/"),
+    ]
     with patch("app.sources.resources.Exa") as MockExa:
-        MockExa.return_value.search_and_contents.return_value = mock_result
+        MockExa.return_value.search_and_contents.side_effect = [mock_result_q1, mock_result_q2]
         result = fetch_resources("algorithms", "backend engineer")
-    assert len(result) == 4          # 2 results × 2 queries
+    assert len(result) == 4          # 2 results × 2 queries, all unique URLs
     assert result[0].type == "leetcode"
     assert result[1].type == "article"
 
 
 def test_fetch_resources_caps_at_six(monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "fake-key")
-    mock_result = MagicMock()
-    mock_result.results = [
+    # Return 4 unique results per query (8 total) so dedup still caps at 6.
+    mock_result_q1 = MagicMock()
+    mock_result_q1.results = [
         MagicMock(title=f"Result {i}", url=f"https://example.com/{i}")
-        for i in range(5)
+        for i in range(4)
+    ]
+    mock_result_q2 = MagicMock()
+    mock_result_q2.results = [
+        MagicMock(title=f"Result {i}", url=f"https://example.com/{i}")
+        for i in range(4, 8)
     ]
     with patch("app.sources.resources.Exa") as MockExa:
-        MockExa.return_value.search_and_contents.return_value = mock_result
+        MockExa.return_value.search_and_contents.side_effect = [mock_result_q1, mock_result_q2]
         result = fetch_resources("algorithms", "backend engineer")
     assert len(result) == 6
 

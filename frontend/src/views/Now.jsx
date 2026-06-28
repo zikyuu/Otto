@@ -45,8 +45,9 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
       const data = await resp.json();
       localStorage.setItem(cacheKey, JSON.stringify(data));
       setResources(prev => ({ ...prev, [taskKey]: data }));
-    } catch {
-      setResources(prev => ({ ...prev, [taskKey]: [] }));
+    } catch (err) {
+      console.error('fetchResources failed:', err);
+      setResources(prev => ({ ...prev, [taskKey]: null }));
     } finally {
       setLoadingRes(prev => { const s = new Set(prev); s.delete(taskKey); return s; });
     }
@@ -60,7 +61,7 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
       else s.add(taskKey);
       return s;
     });
-    if (!isOpen && !resources[taskKey]) {
+    if (!isOpen && resources[taskKey] === undefined && !loadingRes.has(taskKey)) {
       fetchResources(taskKey, skill);
     }
   }
@@ -127,7 +128,7 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
                   {bestMove.meta.split('·')[1]?.trim() ?? bestMove.meta}
                 </span>
               )}
-              {bestMove && <span style={{ color: '#8C7A64', fontWeight: 600, fontSize: 14 }}>· {bestMove.meta.split('·')[0]?.trim()}</span>}
+              {bestMove && <span style={{ color: '#8C7A64', fontWeight: 600, fontSize: 14 }}>· {bestMove?.meta?.split('·')[0]?.trim()}</span>}
             </div>
           </div>
           <div style={{
@@ -174,7 +175,7 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, 
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {tasks.map((t) => {
-            const skill = t.meta?.split('·')[1]?.trim() ?? '';
+            const skill = t.skill ?? t.meta?.split('·')[1]?.trim() ?? '';
             const isExpanded = expanded.has(t.k);
             const isLoading = loadingRes.has(t.k);
             const taskResources = resources[t.k] ?? [];
