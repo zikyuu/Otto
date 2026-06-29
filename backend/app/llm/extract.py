@@ -127,7 +127,10 @@ def parse_jd(jd_text: str, goal_id: str = "job1", title: str = "") -> Goal:
                 messages=[
                     {"role": "system", "content":
                      "Extract from this job description. Return JSON: "
-                     '{"title":<str>,"required_skills":[<str>]}. '
+                     '{"title":<str>,"required_skills":[<str>],"close_date":<str or "">}. '
+                     "close_date: the application deadline in ISO format (YYYY-MM-DD). "
+                     "If the JD says something like 'closes 11 July' or 'deadline July 11, 2026', "
+                     "convert it to YYYY-MM-DD. Use empty string if no deadline is mentioned. "
                      "Only return skills from this list: data structures, "
                      "algorithms, system design, sql, apis, python, testing, "
                      "portfolio project. Use these exact names, lowercase."},
@@ -138,6 +141,7 @@ def parse_jd(jd_text: str, goal_id: str = "job1", title: str = "") -> Goal:
             skills = _normalize_skills(data.get("required_skills", []))
             return Goal(id=goal_id, title=data.get("title", title or "Role"),
                         jd_text=jd_text, required_skills=skills,
+                        close_date=data.get("close_date", ""),
                         fit=0.8)
         except Exception:
             pass

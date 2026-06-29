@@ -52,12 +52,14 @@ class PlanBody(BaseModel):
     profile: dict
     goals: list[dict]
     deadline_day: int = 4
+    user_id: str = ""
 
 class ReshuffleBody(BaseModel):
     profile: dict
     goals: list[dict]
     deadline_day: int = 4
     missed_task_ids: list[str] = []
+    user_id: str = ""
 
 class ChatBody(BaseModel):
     message: str
@@ -180,8 +182,28 @@ def reshuffle(body: ReshuffleBody):
                "the at-risk list so your highest-priority work stays protected.")
     else:
         msg = "Rebuilt your week — everything fits before your deadline."
+    if body.user_id and goals:
+        try:
+            from app.db_helpers import save_plan
+            save_plan(body.user_id, profile, goals[0], tasks, result)
+        except Exception as e:
+            print(f"[db] save reshuffle failed (non-fatal): {e}")
     return {"plan": summary, "narration": msg,
             "tasks": [t.to_dict() for t in tasks]}
+
+class TaskStatusBody(BaseModel):
+    status: str
+
+@app.patch("/api/tasks/{task_id}/status")
+def update_task_status(task_id: str, body: TaskStatusBody):
+    try:
+        from app.database import get_supabase
+        sb = get_supabase()
+        sb.table("tasks").update({"status": body.status}).eq("id", task_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        print(f"[db] task status update failed: {e}")
+        return {"ok": False, "error": str(e)}
 
 @app.post("/api/chat")
 def chat(body: ChatBody):
