@@ -80,7 +80,8 @@ def _rebuild_plan_for_profile(profile_id: str) -> dict:
                   for b in result.blocks]
 
     goal_dicts = [{"id": g.id, "title": g.title, "jd_text": g.jd_text,
-                   "required_skills": g.required_skills, "fit": g.fit, "close_date": ""}
+                   "required_skills": g.required_skills, "fit": g.fit,
+                   "close_date": getattr(g, "close_date", "")}
                   for g in goals]
 
     return {
@@ -147,6 +148,7 @@ def save_plan(user_id: str, profile: Profile, goal: Goal, tasks: list[Task], pla
     sb.table("goals").insert({
         "id": db_goal_id, "profile_id": profile_id,
         "title": goal.title, "jd_text": goal.jd_text[:2000], "fit": goal.fit,
+        "close_date": getattr(goal, "close_date", ""),
     }).execute()
     if goal.required_skills:
         sb.table("goal_required_skills").insert([

@@ -52,12 +52,14 @@ class PlanBody(BaseModel):
     profile: dict
     goals: list[dict]
     deadline_day: int = 4
+    user_id: str = ""
 
 class ReshuffleBody(BaseModel):
     profile: dict
     goals: list[dict]
     deadline_day: int = 4
     missed_task_ids: list[str] = []
+    user_id: str = ""
 
 class ChatBody(BaseModel):
     message: str
@@ -180,14 +182,65 @@ def reshuffle(body: ReshuffleBody):
                "the at-risk list so your highest-priority work stays protected.")
     else:
         msg = "Rebuilt your week — everything fits before your deadline."
+    if body.user_id and goals:
+        try:
+            from app.db_helpers import save_plan
+            save_plan(body.user_id, profile, goals[0], tasks, result)
+        except Exception as e:
+            print(f"[db] save reshuffle failed (non-fatal): {e}")
     return {"plan": summary, "narration": msg,
             "tasks": [t.to_dict() for t in tasks]}
+
+class TaskStatusBody(BaseModel):
+    status: str
+
+@app.patch("/api/tasks/{task_id}/status")
+def update_task_status(task_id: str, body: TaskStatusBody):
+    try:
+        from app.database import get_supabase
+        sb = get_supabase()
+        sb.table("tasks").update({"status": body.status}).eq("id", task_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        print(f"[db] task status update failed: {e}")
+        return {"ok": False, "error": str(e)}
 
 @app.post("/api/chat")
 def chat(body: ChatBody):
     goals = _goals_from(body.goals) if body.goals else []
     review = direction_review([], goals[0]) if goals else ""
     return {"narration": narrate(body.message, body.plan_summary), "review": review}
+
+# ---- Google Calendar endpoints --------------------------------------------
+
+from fastapi.responses import RedirectResponse
+
+@app.get("/api/google/status")
+def google_status(user_id: str):
+    from app.google_auth import is_connected
+    return {"connected": is_connected(user_id)}
+
+@app.get("/api/google/auth-url")
+def google_auth_url(user_id: str):
+    from app.google_auth import get_auth_url
+    return {"url": get_auth_url(user_id)}
+
+@app.get("/api/google/callback")
+def google_callback(code: str, state: str):
+    from app.google_auth import exchange_code, FRONTEND_URL
+    exchange_code(code, user_id=state)
+    return RedirectResponse(f"{FRONTEND_URL}?google=connected")
+
+@app.get("/api/google/walls")
+def google_walls(user_id: str):
+    from app.google_auth import get_walls
+    return {"walls": get_walls(user_id)}
+
+@app.delete("/api/google/disconnect")
+def google_disconnect(user_id: str):
+    from app.google_auth import disconnect
+    disconnect(user_id)
+    return {"ok": True}
 
 # ---- AI: smart reschedule & goal review ----------------------------------
 #

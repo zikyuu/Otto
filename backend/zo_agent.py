@@ -92,7 +92,8 @@ def _load_user(chat_id: int) -> dict | None:
         "velocity": p.get("velocity", 0.8),
     }
 
-    return {"profile": profile, "goals": goals, "profile_id": pid, "missed_task_ids": missed_ids}
+    return {"profile": profile, "goals": goals, "profile_id": pid,
+            "session_id": p.get("session_id", ""), "missed_task_ids": missed_ids}
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +354,6 @@ def _ensure_user(chat_id: int) -> dict | None:
 
 def _handle_reshuffle(chat_id: int) -> None:
     """Call /api/reshuffle with the user's real data and reply."""
-    # clear cache so we get fresh task statuses from DB
     _last_state.pop(str(chat_id), None)
     user = _ensure_user(chat_id)
     if not user:
@@ -364,18 +364,24 @@ def _handle_reshuffle(chat_id: int) -> None:
 
     _send_to(chat_id, "🔄 Reshuffling your week...")
 
-    resp = httpx.post(
-        f"{OTTO_API}/api/reshuffle",
-        json={
-            "profile": profile,
-            "goals": goals,
-            "deadline_day": 4,
-            "missed_task_ids": user.get("missed_task_ids", []),
-        },
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = httpx.post(
+            f"{OTTO_API}/api/reshuffle",
+            json={
+                "profile": profile,
+                "goals": goals,
+                "deadline_day": 4,
+                "missed_task_ids": user.get("missed_task_ids", []),
+                "user_id": user.get("session_id", ""),
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        _send_to(chat_id, f"⚠️ Couldn't reach the Otto server. Try again in a bit.", reply_markup=MAIN_MENU)
+        print(f"[zo_agent] reshuffle API error for {chat_id}: {e}")
+        return
 
     narration = data.get("narration", "")
     plan = data.get("plan", {})
@@ -402,7 +408,14 @@ def _handle_status(chat_id: int) -> None:
         return
     profile = user["profile"]
     goals = user["goals"]
-    data = fetch_plan(profile, goals, 4)
+
+    try:
+        data = fetch_plan(profile, goals, 4)
+    except Exception as e:
+        _send_to(chat_id, f"⚠️ Couldn't reach the Otto server. Try again in a bit.", reply_markup=MAIN_MENU)
+        print(f"[zo_agent] status API error for {chat_id}: {e}")
+        return
+
     plan = data["plan"]
     tasks = data.get("tasks", [])
 
@@ -513,12 +526,75 @@ def poll() -> None:
                 _send_to(chat_id, "🤔 I don't recognise that. Try the buttons below!", reply_markup=MAIN_MENU)
 
 
+# ---------------------------------------------------------------------------
+# 9. Scheduled nudge loop — proactively checks all linked users
+# ---------------------------------------------------------------------------
+
+def _get_all_linked_users() -> list[int]:
+    """Return all Telegram chat IDs that have linked profiles."""
+    sb = _get_supabase()
+    rows = sb.table("profiles").select("telegram_chat_id").not_.is_("telegram_chat_id", "null").execute()
+    return [int(r["telegram_chat_id"]) for r in rows.data if r.get("telegram_chat_id")]
+
+
+def nudge_all() -> None:
+    """Check every linked user and send nudges where needed."""
+    chat_ids = _get_all_linked_users()
+    print(f"[zo_agent] 📢 Checking {len(chat_ids)} linked user(s)...")
+    for chat_id in chat_ids:
+        try:
+            _last_state.pop(str(chat_id), None)
+            user = _load_user(chat_id)
+            if not user or not user["goals"]:
+                continue
+            data = fetch_plan(user["profile"], user["goals"], 4)
+            plan = data["plan"]
+            tasks = data.get("tasks", [])
+            alert = should_alert(plan, user["goals"])
+            if alert is None:
+                print(f"[zo_agent]   {chat_id}: on track")
+                continue
+            next_task = best_next_action(tasks, plan)
+            message = _generate_message(alert, next_task)
+            _send_to(chat_id, message, reply_markup=RESHUFFLE_BUTTON)
+            print(f"[zo_agent]   {chat_id}: nudged")
+        except Exception as e:
+            print(f"[zo_agent]   {chat_id}: error — {e}")
+
+
+def poll_and_nudge(nudge_interval_min: int = 60) -> None:
+    """Run polling + periodic nudge checks in one loop."""
+    import time
+    import threading
+
+    def _nudge_loop():
+        while True:
+            time.sleep(nudge_interval_min * 60)
+            try:
+                nudge_all()
+            except Exception as e:
+                print(f"[zo_agent] nudge loop error: {e}")
+
+    threading.Thread(target=_nudge_loop, daemon=True).start()
+    nudge_all()
+    poll()
+
+
 if __name__ == "__main__":
     if "--demo" in sys.argv:
         run_demo()
     elif "--poll" in sys.argv:
         poll()
+    elif "--nudge" in sys.argv:
+        nudge_all()
+    elif "--serve" in sys.argv:
+        interval = 60
+        if len(sys.argv) > 2:
+            interval = int(sys.argv[2])
+        poll_and_nudge(nudge_interval_min=interval)
     else:
         print("Usage:")
-        print("  python -m zo_agent --demo    One-shot nudge check")
-        print("  python -m zo_agent --poll    Listen for /reshuffle commands")
+        print("  python -m zo_agent --demo          One-shot nudge check (demo data)")
+        print("  python -m zo_agent --poll          Listen for commands only")
+        print("  python -m zo_agent --nudge         One-shot nudge all linked users")
+        print("  python -m zo_agent --serve [min]   Poll + nudge every N minutes (default 60)")
