@@ -130,7 +130,34 @@ def plan(body: PlanBody):
     goals = _goals_from(body.goals)
     tasks = _all_tasks(profile, goals)
     result = assess(tasks, profile, goals, body.deadline_day)
-    return {"plan": result.to_dict(), "tasks": [t.to_dict() for t in tasks]}
+    profile_id = None
+    if body.user_id and goals:
+        try:
+            from app.db_helpers import save_plan
+            save_plan(body.user_id, profile, goals[0], tasks, result)
+            from app.database import get_supabase
+            sb = get_supabase()
+            row = sb.table("profiles").select("id").eq("session_id", body.user_id).execute()
+            if row.data:
+                profile_id = row.data[0]["id"]
+        except Exception as e:
+            print(f"[db] save_plan failed (non-fatal): {e}")
+    resp = {"plan": result.to_dict(), "tasks": [t.to_dict() for t in tasks]}
+    if profile_id:
+        resp["profile_id"] = profile_id
+    return resp
+
+@app.get("/api/me/telegram-status")
+def telegram_status(user_id: str):
+    try:
+        from app.database import get_supabase
+        sb = get_supabase()
+        row = sb.table("profiles").select("telegram_chat_id").eq("session_id", user_id).execute()
+        if row.data and row.data[0].get("telegram_chat_id"):
+            return {"linked": True}
+    except Exception:
+        pass
+    return {"linked": False}
 
 @app.post("/api/reshuffle")
 def reshuffle(body: ReshuffleBody):
