@@ -41,6 +41,61 @@ MODEL = "gpt-4o-mini"
 
 
 # ---------------------------------------------------------------------------
+# 0. Supabase user lookup
+# ---------------------------------------------------------------------------
+
+def _get_supabase():
+    from app.database import get_supabase
+    return get_supabase()
+
+
+def _link_telegram(chat_id: int, profile_id: str) -> None:
+    sb = _get_supabase()
+    sb.table("profiles").update({"telegram_chat_id": str(chat_id)}).eq("id", profile_id).execute()
+
+
+def _load_user(chat_id: int) -> dict | None:
+    """Look up a user's profile, skills, goals, and walls by Telegram chat ID."""
+    sb = _get_supabase()
+    res = sb.table("profiles").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+    if not res.data:
+        return None
+    p = res.data[0]
+    pid = p["id"]
+
+    skills = sb.table("skills").select("*").eq("profile_id", pid).execute().data
+    walls = sb.table("walls").select("*").eq("profile_id", pid).execute().data
+    goals_raw = sb.table("goals").select("*").eq("profile_id", pid).execute().data
+
+    goals = []
+    for g in goals_raw:
+        req = sb.table("goal_required_skills").select("skill_name").eq("goal_id", g["id"]).execute().data
+        goals.append({
+            "id": g["id"],
+            "title": g["title"],
+            "jd_text": g.get("jd_text", ""),
+            "close_date": g.get("close_date", ""),
+            "required_skills": [r["skill_name"] for r in req],
+            "fit": g.get("fit", 0.5),
+        })
+
+    # load tasks to check which are done/missed
+    tasks_raw = sb.table("tasks").select("*").execute().data
+    goal_ids = {g["id"] for g in goals_raw}
+    user_tasks = [t for t in tasks_raw if t.get("goal_id") in goal_ids]
+    missed_ids = [t["id"] for t in user_tasks if t.get("status") in ("missed", "todo")]
+
+    profile = {
+        "skills": [{"id": s["id"], "name": s["name"], "proficiency": s["proficiency"]} for s in skills],
+        "free_hours_per_day": p.get("free_hours_per_day", 3.0),
+        "walls": [{"day": w["day"], "start_min": w["start_min"], "end_min": w["end_min"], "label": w.get("label", "")} for w in walls],
+        "velocity": p.get("velocity", 0.8),
+    }
+
+    return {"profile": profile, "goals": goals, "profile_id": pid, "missed_task_ids": missed_ids}
+
+
+# ---------------------------------------------------------------------------
 # 1. Fetch current plan from Otto API
 # ---------------------------------------------------------------------------
 
@@ -285,13 +340,27 @@ def run_demo():
 _last_state: dict = {}
 
 
+def _ensure_user(chat_id: int) -> dict | None:
+    """Load user data from Supabase, caching in _last_state."""
+    cached = _last_state.get(str(chat_id))
+    if cached:
+        return cached
+    user = _load_user(chat_id)
+    if user:
+        _last_state[str(chat_id)] = user
+    return user
+
+
 def _handle_reshuffle(chat_id: int) -> None:
-    """Call /api/reshuffle with the last known state and reply."""
-    profile = _last_state.get("profile")
-    goals = _last_state.get("goals")
-    if not profile or not goals:
-        _send_to(chat_id, "😅 I don't have a plan loaded yet. Hit 📊 *Status* first!", reply_markup=MAIN_MENU)
+    """Call /api/reshuffle with the user's real data and reply."""
+    # clear cache so we get fresh task statuses from DB
+    _last_state.pop(str(chat_id), None)
+    user = _ensure_user(chat_id)
+    if not user:
+        _send_to(chat_id, "😅 I don't know you yet. Set up your profile on the web app first, then link with /start.", reply_markup=MAIN_MENU)
         return
+    profile = user["profile"]
+    goals = user["goals"]
 
     _send_to(chat_id, "🔄 Reshuffling your week...")
 
@@ -300,8 +369,8 @@ def _handle_reshuffle(chat_id: int) -> None:
         json={
             "profile": profile,
             "goals": goals,
-            "deadline_day": _last_state.get("deadline_day", 4),
-            "missed_task_ids": _last_state.get("missed_task_ids", []),
+            "deadline_day": 4,
+            "missed_task_ids": user.get("missed_task_ids", []),
         },
         timeout=15,
     )
@@ -324,9 +393,16 @@ def _handle_reshuffle(chat_id: int) -> None:
     _send_to(chat_id, "\n".join(lines), reply_markup=MAIN_MENU)
 
 
-def _handle_status(chat_id: int, profile: dict, goals: list[dict], deadline_day: int) -> None:
+def _handle_status(chat_id: int) -> None:
     """Check feasibility and reply with status, even if everything is fine."""
-    data = fetch_plan(profile, goals, deadline_day)
+    _last_state.pop(str(chat_id), None)
+    user = _ensure_user(chat_id)
+    if not user:
+        _send_to(chat_id, "😅 I don't know you yet. Set up your profile on the web app first, then link with /start.", reply_markup=MAIN_MENU)
+        return
+    profile = user["profile"]
+    goals = user["goals"]
+    data = fetch_plan(profile, goals, 4)
     plan = data["plan"]
     tasks = data.get("tasks", [])
 
@@ -348,17 +424,9 @@ def _handle_status(chat_id: int, profile: dict, goals: list[dict], deadline_day:
     _send_to(chat_id, message, reply_markup=RESHUFFLE_BUTTON)
 
 
-def poll(profile: dict, goals: list[dict], deadline_day: int = 4,
-         missed_task_ids: list[str] | None = None) -> None:
+def poll() -> None:
     """Long-poll Telegram for commands and button taps. Blocks forever."""
     import time
-
-    _last_state.update({
-        "profile": profile,
-        "goals": goals,
-        "deadline_day": deadline_day,
-        "missed_task_ids": missed_task_ids or [],
-    })
 
     # flush old updates so we only react to new messages
     try:
@@ -391,55 +459,65 @@ def poll(profile: dict, goals: list[dict], deadline_day: int = 4,
             callback = update.get("callback_query")
             if callback:
                 chat_id = callback["message"]["chat"]["id"]
-                data = callback.get("data", "")
+                cb_data = callback.get("data", "")
                 _answer_callback(callback["id"])
-                print(f"[zo_agent] 🔘 button '{data}' from {chat_id}")
+                print(f"[zo_agent] 🔘 button '{cb_data}' from {chat_id}")
 
-                if data == "reshuffle":
+                if cb_data == "reshuffle":
                     _handle_reshuffle(chat_id)
-                elif data == "status":
-                    _handle_status(chat_id, profile, goals, deadline_day)
+                elif cb_data == "status":
+                    _handle_status(chat_id)
                 continue
 
             # --- handle text messages ---
             msg = update.get("message", {})
-            text = msg.get("text", "").strip().lower()
+            text = msg.get("text", "").strip()
             chat_id = msg.get("chat", {}).get("id")
             if not chat_id:
                 continue
 
             print(f"[zo_agent] 💬 got '{text}' from {chat_id}")
-            if text == "/start":
-                _send_to(
-                    chat_id,
-                    "👋 Hey! I'm *Otto*, your prep coach.\n\nTap a button below to get started!",
-                    reply_markup=MAIN_MENU,
-                )
-            elif text == "/reshuffle":
+
+            if text.lower().startswith("/start"):
+                parts = text.split()
+                if len(parts) > 1:
+                    profile_id = parts[1]
+                    _link_telegram(chat_id, profile_id)
+                    _last_state.pop(str(chat_id), None)
+                    _send_to(
+                        chat_id,
+                        "🔗 Linked! I can see your profile now.\n\n👋 I'm *Otto*, your prep coach. Tap a button below!",
+                        reply_markup=MAIN_MENU,
+                    )
+                else:
+                    user = _load_user(chat_id)
+                    if user:
+                        _send_to(
+                            chat_id,
+                            f"👋 Welcome back! I can see your profile. Tap a button below!",
+                            reply_markup=MAIN_MENU,
+                        )
+                    else:
+                        _send_to(
+                            chat_id,
+                            "👋 Hey! I'm *Otto*, your prep coach.\n\n"
+                            "To link your account, tap the *Connect Telegram* button "
+                            "in the Otto web app after setting up your plan.",
+                            reply_markup=MAIN_MENU,
+                        )
+            elif text.lower() == "/reshuffle":
                 _handle_reshuffle(chat_id)
-            elif text == "/status":
-                _handle_status(chat_id, profile, goals, deadline_day)
+            elif text.lower() == "/status":
+                _handle_status(chat_id)
             else:
                 _send_to(chat_id, "🤔 I don't recognise that. Try the buttons below!", reply_markup=MAIN_MENU)
-
-
-def poll_demo():
-    """Poll with demo data — for testing the /reshuffle flow."""
-    from app.llm.extract import parse_resume, parse_jd
-
-    demo = fetch_demo()
-    profile = parse_resume(demo["resume_text"]).to_dict()
-    goal = parse_jd(demo["demo_jd"]).to_dict()
-    profile["velocity"] = 0.4
-    profile["walls"] = demo["walls"]
-    poll(profile, [goal], deadline_day=4)
 
 
 if __name__ == "__main__":
     if "--demo" in sys.argv:
         run_demo()
     elif "--poll" in sys.argv:
-        poll_demo()
+        poll()
     else:
         print("Usage:")
         print("  python -m zo_agent --demo    One-shot nudge check")

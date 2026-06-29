@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const wiseImg = '/mascots/wise.png';
 
 export default function Setup({ onComplete, userId }) {
-  const [step, setStep] = useState(0); // 0 = resume, 1 = job, 2 = hours
+  const [step, setStep] = useState(0); // 0 = resume, 1 = job, 2 = hours, 3 = telegram
   const [resumeReady, setResumeReady] = useState(false);
   const [profile, setProfile] = useState(null);
   const [name, setName] = useState('');
@@ -12,6 +12,8 @@ export default function Setup({ onComplete, userId }) {
   const [loading, setLoading] = useState(false);
   const [buildMsg, setBuildMsg] = useState('');
   const [error, setError] = useState('');
+  const [profileId, setProfileId] = useState(null);
+  const [builtData, setBuiltData] = useState(null);
 
   const API = import.meta.env.VITE_API ?? '';
 
@@ -53,7 +55,10 @@ export default function Setup({ onComplete, userId }) {
       }).then(r => r.json());
 
       setBuildMsg('');
-      onComplete({ profile: p, goal: g, tasks: result.tasks, blocks: result.plan.blocks, plan: result.plan });
+      const data = { profile: p, goal: g, tasks: result.tasks, blocks: result.plan.blocks, plan: result.plan };
+      setBuiltData(data);
+      if (result.profile_id) setProfileId(result.profile_id);
+      setStep(3);
     } catch (err) {
         setBuildMsg(`Something went wrong: ${err.message}`);
     } finally {
@@ -65,6 +70,7 @@ export default function Setup({ onComplete, userId }) {
     { label: 'Resume', icon: '◎' },
     { label: 'Job', icon: '◗' },
     { label: 'Time', icon: '◔' },
+    { label: 'Telegram', icon: '✈' },
   ];
 
   return (
@@ -81,7 +87,7 @@ export default function Setup({ onComplete, userId }) {
             Let's build your plan
           </div>
           <div style={{ fontSize: 15, color: '#8C7A64', marginTop: 5 }}>
-            Three quick things and Otto handles the rest.
+            Four quick things and Otto handles the rest.
           </div>
         </div>
 
@@ -221,6 +227,15 @@ export default function Setup({ onComplete, userId }) {
               />
             </div>
           )}
+          {/* Step 3 — Telegram (compulsory) */}
+          {step === 3 && (
+            <TelegramStep
+              profileId={profileId}
+              userId={userId}
+              api={API}
+              onLinked={() => onComplete(builtData)}
+            />
+          )}
         </div>
 
         <div style={{ fontSize: 12, color: '#B6A48C' }}>No fluff. Just the next thing to do.</div>
@@ -237,6 +252,82 @@ function SectionHead({ icon, title, sub }) {
         <span style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 20, color: '#4A3526' }}>{title}</span>
       </div>
       <div style={{ fontSize: 14, color: '#8C7A64', lineHeight: 1.5, paddingLeft: 28 }}>{sub}</div>
+    </div>
+  );
+}
+
+function TelegramStep({ profileId, userId, api, onLinked }) {
+  const [linked, setLinked] = useState(false);
+  const [opened, setOpened] = useState(false);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    if (!userId || linked) return;
+    intervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${api}/api/me/telegram-status?user_id=${userId}`);
+        const data = await res.json();
+        if (data.linked) {
+          setLinked(true);
+          clearInterval(intervalRef.current);
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(intervalRef.current);
+  }, [userId, linked, api]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <SectionHead icon="✈" title="Connect Telegram" sub="Link your Telegram so Otto can nudge you when you fall behind." />
+
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+        background: linked ? '#E2F2EA' : '#FBF4EC', borderRadius: 18, padding: '28px 24px', textAlign: 'center',
+        transition: 'background .3s ease',
+      }}>
+        <div style={{ fontSize: 48 }}>{linked ? '✅' : '🤖'}</div>
+        <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 16, color: '#4A3526' }}>
+          {linked ? 'Telegram linked!' : 'Otto will message you when you\'re behind schedule'}
+        </div>
+        <div style={{ fontSize: 13, color: '#8C7A64', lineHeight: 1.6 }}>
+          {linked
+            ? 'You\'re all set — Otto will send you nudges with your top priority task and can reshuffle your week on demand.'
+            : 'Tap the button below to open Telegram and link your account. Come back here once you\'ve tapped Start in the bot.'}
+        </div>
+        {!linked && (
+          <a
+            href={`https://t.me/otto_prep_bot?start=${profileId || ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpened(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '14px 28px', borderRadius: 14, border: 'none',
+              background: 'linear-gradient(135deg, #2AABEE, #229ED9)',
+              color: '#fff', fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 15,
+              textDecoration: 'none', cursor: 'pointer',
+              boxShadow: '0 12px 22px -10px rgba(34,158,217,.5)',
+              transition: 'all .15s ease',
+            }}
+          >
+            ✈ Open Telegram
+          </a>
+        )}
+        {opened && !linked && (
+          <div style={{ fontSize: 13, color: '#AD9B84', fontStyle: 'italic' }}>
+            Waiting for you to tap Start in Telegram…
+          </div>
+        )}
+      </div>
+
+      <NavRow
+        next={{
+          label: linked ? 'Finish setup →' : 'Waiting for Telegram…',
+          primary: linked,
+          disabled: !linked,
+          onClick: onLinked,
+        }}
+      />
     </div>
   );
 }
