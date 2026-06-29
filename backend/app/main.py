@@ -189,6 +189,37 @@ def chat(body: ChatBody):
     review = direction_review([], goals[0]) if goals else ""
     return {"narration": narrate(body.message, body.plan_summary), "review": review}
 
+# ---- Google Calendar endpoints --------------------------------------------
+
+from fastapi.responses import RedirectResponse
+
+@app.get("/api/google/status")
+def google_status(user_id: str):
+    from app.google_auth import is_connected
+    return {"connected": is_connected(user_id)}
+
+@app.get("/api/google/auth-url")
+def google_auth_url(user_id: str):
+    from app.google_auth import get_auth_url
+    return {"url": get_auth_url(user_id)}
+
+@app.get("/api/google/callback")
+def google_callback(code: str, state: str):
+    from app.google_auth import exchange_code, FRONTEND_URL
+    exchange_code(code, user_id=state)
+    return RedirectResponse(f"{FRONTEND_URL}?google=connected")
+
+@app.get("/api/google/walls")
+def google_walls(user_id: str):
+    from app.google_auth import get_walls
+    return {"walls": get_walls(user_id)}
+
+@app.delete("/api/google/disconnect")
+def google_disconnect(user_id: str):
+    from app.google_auth import disconnect
+    disconnect(user_id)
+    return {"ok": True}
+
 # ---- AI: smart reschedule & goal review ----------------------------------
 #
 # Require OPENAI_API_KEY in backend/.env  (EXA_API_KEY optional for richer goal review)
