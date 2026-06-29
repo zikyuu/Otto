@@ -1,7 +1,56 @@
 import { useState } from 'react';
-import { GOALS } from '../data/fixtures.js';
 
-const PERSONAL_GOALS = GOALS.filter(g => g.tag === 'life');
+const FEASIBILITY_STYLE = {
+  'on-track':  { bg:'#E2F2EA', border:'#C9E6D5', dot:'#6BBF95', text:'#3D8A62', label:'On track' },
+  'at-risk':   { bg:'#FBEFD9', border:'#F3DCB0', dot:'#ECA94E', text:'#9A6B1E', label:'At risk'  },
+  'infeasible':{ bg:'#FBEFD9', border:'#F3DCB0', dot:'#D8923A', text:'#8A4A12', label:'Needs major change' },
+};
+
+function tagStyle(tag) {
+  return tag === 'life'
+    ? { background:'#E2F2EA', color:'#4FA77D' }
+    : { background:'#F2E6D4', color:'#A8703E' };
+}
+
+function AiReviewPanel({ review, onClose }) {
+  const s = FEASIBILITY_STYLE[review.feasibility] || FEASIBILITY_STYLE['at-risk'];
+  return (
+    <div style={{ background:s.bg, border:`1px solid ${s.border}`, borderRadius:22, padding:'22px 26px', marginBottom:22, position:'relative', animation:'sheetUp .4s ease' }}>
+      <button onClick={onClose} style={{ position:'absolute', top:14, right:16, background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#AD9B84', lineHeight:1 }}>×</button>
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+        <span style={{ width:10, height:10, borderRadius:'50%', background:s.dot, display:'inline-block', flexShrink:0 }} />
+        <span style={{ fontFamily:"'Quicksand'", fontWeight:800, fontSize:17, color:s.text }}>{s.label}</span>
+        {review.exa_grounded && (
+          <span style={{ fontSize:10, fontWeight:700, color:'#AD9B84', background:'#fff', borderRadius:999, padding:'2px 8px', marginLeft:4 }}>Exa-grounded</span>
+        )}
+      </div>
+      <p style={{ fontSize:14, color:'#4A3526', lineHeight:1.55, margin:'0 0 14px' }}>{review.summary}</p>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+        <div style={{ background:'#fff', borderRadius:16, padding:'14px 16px' }}>
+          <div style={{ fontWeight:800, fontSize:11, letterSpacing:'.5px', color:s.text, marginBottom:8 }}>TIMELINE ANALYSIS</div>
+          <p style={{ fontSize:13, color:'#6A5040', lineHeight:1.5, margin:0 }}>{review.timeline_analysis}</p>
+        </div>
+        <div style={{ background:'#fff', borderRadius:16, padding:'14px 16px' }}>
+          <div style={{ fontWeight:800, fontSize:11, letterSpacing:'.5px', color:s.text, marginBottom:8 }}>FOCUS NOW</div>
+          <p style={{ fontSize:13, color:'#6A5040', lineHeight:1.5, margin:0 }}>{review.focus_recommendation}</p>
+        </div>
+      </div>
+      {review.suggested_adjustments?.length > 0 && (
+        <div style={{ marginTop:14 }}>
+          <div style={{ fontWeight:800, fontSize:11, letterSpacing:'.5px', color:s.text, marginBottom:8 }}>SUGGESTED ADJUSTMENTS</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+            {review.suggested_adjustments.map((adj, i) => (
+              <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
+                <span style={{ width:20, height:20, borderRadius:6, background:s.dot, color:'#fff', fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>{i+1}</span>
+                <span style={{ fontSize:13, color:'#5A4030', lineHeight:1.45 }}>{adj}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function mapApiGoal(apiGoal, tasks) {
   const goalTasks = (tasks ?? []).filter(t => t.goal_id === apiGoal.id);
@@ -27,20 +76,17 @@ function mapApiGoal(apiGoal, tasks) {
   };
 }
 
-function tagStyle(tag) {
-  return tag === 'life'
-    ? { background: '#E2F2EA', color: '#4FA77D' }
-    : { background: '#F2E6D4', color: '#A8703E' };
-}
-
 export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiTasks = [], onAddGoal, onDeleteGoal }) {
   const [adding, setAdding] = useState(false);
   const [newJd, setNewJd] = useState('');
   const [addLoading, setAddLoading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [aiReview, setAiReview] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
 
   const mappedApiGoals = apiGoals.map(g => mapApiGoal(g, apiTasks));
-  const goals = mappedApiGoals.length ? [...mappedApiGoals, ...PERSONAL_GOALS] : GOALS;
+  const goals = mappedApiGoals;
   const isReal = mappedApiGoals.length > 0;
 
   async function handleAdd() {
@@ -63,43 +109,85 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
     finally { setDeletingId(null); }
   }
 
+  async function handleReview() {
+    if (!isReal) return;
+    setAiLoading(true);
+    setAiError('');
+    setAiReview(null);
+    try {
+      const res = await fetch('/api/ai/review-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goals: apiGoals.map(g => { const m = mapApiGoal(g, apiTasks); return { id: m.id, title: m.title, cat: m.cat, pct: m.pct, label: m.label, subnote: m.subnote, direction: m.direction, subs: m.subs }; }),
+          timeline_weeks: 8,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `HTTP ${res.status}`);
+      }
+      setAiReview(await res.json());
+    } catch (err) {
+      setAiError(err.message.includes('503') || err.message.includes('OPENAI')
+        ? 'Add OPENAI_API_KEY to backend/.env to enable AI review.'
+        : 'Review failed — is the backend running?');
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
     <div style={{ padding: '32px 44px 40px', animation: 'fadeIn .45s ease' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 4 }}>
         <div>
           <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 30, color: '#4A3526' }}>Your goals</div>
           <div style={{ fontSize: 14, color: '#8C7A64', marginTop: 3 }}>Long-term goals grow as a bar. Tap one to see the small steps.</div>
         </div>
-        {isReal && !adding && (
-          <div onClick={() => setAdding(true)} style={{
-            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
-            background: 'linear-gradient(135deg,#C0894F,#A8703E)', color: '#fff',
-            fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 14,
-            padding: '10px 18px', borderRadius: 13,
-            boxShadow: '0 8px 16px -8px rgba(150,108,64,.6)',
-          }}>
-            + Add job target
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {isReal && (
+            <button onClick={handleReview} disabled={aiLoading} style={{
+              padding: '10px 20px', borderRadius: 999, border: 'none',
+              background: aiLoading ? '#F1E8D7' : '#A8703E',
+              color: aiLoading ? '#AD9B84' : '#fff',
+              fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 14,
+              cursor: aiLoading ? 'default' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 8,
+              boxShadow: aiLoading ? 'none' : '0 6px 16px -8px rgba(168,112,62,.7)',
+              transition: 'all .2s ease',
+            }}>
+              {aiLoading ? <><span style={{ animation: 'ringPulse 1.1s ease infinite' }}>✦</span> Reviewing…</> : <>✦ Review with AI</>}
+            </button>
+          )}
+          {isReal && !adding && (
+            <div onClick={() => setAdding(true)} style={{
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+              background: 'linear-gradient(135deg,#C0894F,#A8703E)', color: '#fff',
+              fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 14,
+              padding: '10px 18px', borderRadius: 13,
+              boxShadow: '0 8px 16px -8px rgba(150,108,64,.6)',
+            }}>+ Add job target</div>
+          )}
+        </div>
       </div>
+
+      {aiError && (
+        <div style={{ background: '#FBEFD9', border: '1px solid #F3DCB0', borderRadius: 14, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#9A6B1E', display: 'flex', gap: 8 }}>
+          <span>⚠</span><span>{aiError}</span>
+          <span onClick={() => setAiError('')} style={{ marginLeft: 'auto', cursor: 'pointer', color: '#B6A48C' }}>×</span>
+        </div>
+      )}
+
+      {aiReview && <AiReviewPanel review={aiReview} onClose={() => setAiReview(null)} />}
 
       {/* Add job target form */}
       {adding && (
-        <div style={{
-          marginTop: 22, background: '#fff', border: '1.5px solid #A8703E',
-          borderRadius: 22, padding: 22, boxShadow: '0 12px 30px -24px rgba(74,54,38,.5)',
-        }}>
-          <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 16, color: '#4A3526', marginBottom: 12 }}>
-            Paste the job description
-          </div>
+        <div style={{ marginTop: 22, background: '#fff', border: '1.5px solid #A8703E', borderRadius: 22, padding: 22, boxShadow: '0 12px 30px -24px rgba(74,54,38,.5)' }}>
+          <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 16, color: '#4A3526', marginBottom: 12 }}>Paste the job description</div>
           <textarea
             rows={5} value={newJd} onChange={e => setNewJd(e.target.value)}
             placeholder="Paste the full job description here…"
-            style={{
-              width: '100%', boxSizing: 'border-box', border: '1.5px solid #ECE3D4',
-              borderRadius: 12, padding: '12px 14px', fontSize: 13, lineHeight: 1.6,
-              resize: 'vertical', fontFamily: 'inherit', color: '#4A3526', outline: 'none',
-            }}
+            style={{ width: '100%', boxSizing: 'border-box', border: '1.5px solid #ECE3D4', borderRadius: 12, padding: '12px 14px', fontSize: 13, lineHeight: 1.6, resize: 'vertical', fontFamily: 'inherit', color: '#4A3526', outline: 'none' }}
             onFocus={e => e.target.style.borderColor = '#A8703E'}
             onBlur={e => e.target.style.borderColor = '#ECE3D4'}
           />
@@ -122,6 +210,20 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
         </div>
       )}
 
+      {goals.length === 0 && !adding && (
+        <div style={{ marginTop: 32, textAlign: 'center', color: '#AD9B84', fontSize: 15 }}>
+          <div style={{ fontSize: 38, marginBottom: 12 }}>🎯</div>
+          <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 18, color: '#4A3526', marginBottom: 6 }}>No job targets yet</div>
+          <div style={{ marginBottom: 20 }}>Paste a job description and Otto will build a plan around it.</div>
+          <div onClick={() => setAdding(true)} style={{
+            display: 'inline-block', cursor: 'pointer',
+            background: 'linear-gradient(135deg,#C0894F,#A8703E)', color: '#fff',
+            fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 14,
+            padding: '11px 22px', borderRadius: 13,
+          }}>+ Add job target</div>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(330px,1fr))', gap: 16, marginTop: 22 }}>
         {goals.map(g => (
           <div key={g.id} onClick={() => onOpenGoal(g.id)} style={{
@@ -129,26 +231,19 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
             borderRadius: 22, padding: 22, boxShadow: '0 12px 30px -24px rgba(74,54,38,.5)',
             position: 'relative',
           }}>
-            {/* Delete button — only on real job targets */}
-            {g.tag === 'skill' && isReal && onDeleteGoal && (
-              <div
-                onClick={e => handleDelete(e, g.id)}
-                style={{
-                  position: 'absolute', top: 14, right: 14,
-                  width: 26, height: 26, borderRadius: '50%',
-                  background: deletingId === g.id ? '#E9DCC8' : '#F5EEE1',
-                  color: '#B6A48C', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                  transition: 'background .15s',
-                }}
-              >
+            {isReal && onDeleteGoal && (
+              <div onClick={e => handleDelete(e, g.id)} style={{
+                position: 'absolute', top: 14, right: 14,
+                width: 26, height: 26, borderRadius: '50%',
+                background: deletingId === g.id ? '#E9DCC8' : '#F5EEE1',
+                color: '#B6A48C', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}>
                 {deletingId === g.id ? '…' : '×'}
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingRight: g.tag === 'skill' && isReal ? 32 : 0 }}>
-              <span style={{ fontWeight: 800, fontSize: 10, letterSpacing: '.5px', padding: '4px 9px', borderRadius: 7, ...tagStyle(g.tag) }}>
-                {g.cat}
-              </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingRight: isReal ? 32 : 0 }}>
+              <span style={{ fontWeight: 800, fontSize: 10, letterSpacing: '.5px', padding: '4px 9px', borderRadius: 7, ...tagStyle(g.tag) }}>{g.cat}</span>
               <span style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 20, color: g.accent }}>{g.label}</span>
             </div>
             <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 19, color: '#4A3526', margin: '13px 0 14px', lineHeight: 1.15 }}>{g.title}</div>
@@ -168,17 +263,15 @@ export function GoalsList({ checks, onToggleSub, onOpenGoal, apiGoals = [], apiT
 
 export function GoalDetail({ goalId, checks, onToggleSub, onClose, apiGoals = [], apiTasks = [] }) {
   const mappedApiGoals = apiGoals.map(g => mapApiGoal(g, apiTasks));
-  const allGoals = mappedApiGoals.length ? [...mappedApiGoals, ...PERSONAL_GOALS] : GOALS;
-  const g = allGoals.find(x => x.id === goalId) || allGoals[0];
+  const g = mappedApiGoals.find(x => x.id === goalId) || mappedApiGoals[0];
+  if (!g) return null;
 
   return (
     <div style={{ padding: '28px 44px 40px', animation: 'fadeIn .4s ease' }}>
       <div onClick={onClose} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontWeight: 700, fontSize: 14, color: '#8C7A64', marginBottom: 18 }}>
         ← All goals
       </div>
-      <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: '.5px', padding: '4px 10px', borderRadius: 7, ...tagStyle(g.tag) }}>
-        {g.cat}
-      </span>
+      <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: '.5px', padding: '4px 10px', borderRadius: 7, ...tagStyle(g.tag) }}>{g.cat}</span>
       <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 32, color: '#4A3526', margin: '11px 0 16px', lineHeight: 1.08 }}>{g.title}</div>
 
       <div style={{ background: '#fff', border: '1px solid #ECE3D4', borderRadius: 20, padding: '20px 22px', boxShadow: '0 12px 30px -24px rgba(74,54,38,.5)' }}>
@@ -196,10 +289,7 @@ export function GoalDetail({ goalId, checks, onToggleSub, onClose, apiGoals = []
           <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#F6E1B8', color: '#D8923A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flex: '0 0 auto' }}>↗</div>
           <div>
             <div style={{ fontWeight: 800, fontSize: 11, letterSpacing: '1px', color: '#D8923A' }}>DIRECTION CHECK</div>
-            <div style={{ fontSize: 15, color: '#7A5A22', lineHeight: 1.5, marginTop: 4 }}>
-              {g.direction}{' '}
-              <span style={{ color: '#D8923A', fontWeight: 800, textDecoration: 'underline', cursor: 'pointer' }}>see evidence</span>
-            </div>
+            <div style={{ fontSize: 15, color: '#7A5A22', lineHeight: 1.5, marginTop: 4 }}>{g.direction}</div>
           </div>
         </div>
       </div>

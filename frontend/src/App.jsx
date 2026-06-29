@@ -12,29 +12,69 @@ import { GoalsList, GoalDetail } from './views/Goals.jsx';
 import Stats from './views/Stats.jsx';
 import Feasibility from './modals/Feasibility.jsx';
 import Tradeoff from './modals/Tradeoff.jsx';
-import { NOW_TASKS, initChecks } from './data/fixtures.js';
+import Settings from './views/Settings.jsx';
 
 const API = import.meta.env.VITE_API ?? '';
+
+// ── calendar helpers ──────────────────────────────────────────────────────────
+const SKILL_TO_CAT = [
+  [['algorithm','leetcode','data structure','dynamic programming','tree','graph','binary'], 'leetcode'],
+  [['system design','architecture','distributed','scalab'], 'system-design'],
+  [['llm','embedding','rag','gpt','machine learning',' ml ','nlp','neural','transformer'], 'llm'],
+  [['interview'], 'interview'],
+];
+function skillToCategory(skill) {
+  const s = ` ${skill.toLowerCase()} `;
+  for (const [keys, cat] of SKILL_TO_CAT) {
+    if (keys.some(k => s.includes(k))) return cat;
+  }
+  return 'deep work';
+}
+function blocksToEvents(blocks, tasks, walls = []) {
+  const planEvents = blocks.map((b, i) => {
+    const task = tasks.find(t => t.id === b.task_id);
+    return {
+      id: `blk_${i}_${b.task_id}`,
+      title: task?.title?.replace(/^Build skill:\s*/i, '') ?? b.task_id,
+      day: b.day + 22,
+      startMin: b.start_min,
+      durationMin: Math.max(15, b.end_min - b.start_min),
+      category: skillToCategory(task?.skill_served ?? ''),
+      fixed: false,
+    };
+  });
+  const wallEvents = walls.map((w, i) => ({
+    id: `wall_${i}`,
+    title: w.label || 'Busy',
+    day: w.day + 22,
+    startMin: w.start_min,
+    durationMin: Math.max(15, w.end_min - w.start_min),
+    category: 'life',
+    fixed: true,
+  }));
+  return [...wallEvents, ...planEvents];
+}
 
 export default function App() {
   // ── auth ──────────────────────────────────────────────────────────────────
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [planLoading, setPlanLoading] = useState(false);
+  const [planLoading, setPlanLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data.session?.user ?? null);
       setAuthLoading(false);
+      if (!data.session) setPlanLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) setPlanData(null);
+      if (!session) { setPlanData(null); setChecks({}); setPlanLoading(false); }
       setUser(session?.user ?? null);
     });
     return () => subscription.unsubscribe();
   }, []);
 
-  // On every login, sync plan from Supabase (keeps cross-device in sync)
+  // On every login, load plan from Supabase
   useEffect(() => {
     if (!user) return;
     setPlanLoading(true);
@@ -42,31 +82,24 @@ export default function App() {
       .then(r => r.json())
       .then(data => {
         if (data?.plan) {
-          if (!data.profile?.name) {
-            const cached = JSON.parse(localStorage.getItem('otto_plan') || 'null');
-            if (cached?.profile?.name) data.profile.name = cached.profile.name;
-          }
-          localStorage.setItem('otto_plan', JSON.stringify(data));
           setPlanData(data);
-          // Derive checks from DB task statuses (authoritative on login)
           const dbChecks = {};
           (data.tasks || []).forEach(t => { dbChecks[t.id] = t.status === 'done'; });
           setChecks(dbChecks);
-          localStorage.setItem('otto_checks', JSON.stringify(dbChecks));
         }
+        // No plan in DB → planData stays null → Setup shows (new user)
       })
       .catch(() => {})
       .finally(() => setPlanLoading(false));
   }, [user?.id]);
 
-  // ── plan data (from setup onboarding) ────────────────────────────────────
-  const [planData, setPlanData] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('otto_plan') ?? 'null'); } catch { return null; }
-  });
+  // ── plan data ─────────────────────────────────────────────────────────────
+  const [planData, setPlanData] = useState(null);
+  const [checks, setChecks] = useState({});
 
   function onSetupComplete(data) {
-    localStorage.setItem('otto_plan', JSON.stringify(data));
     setPlanData(data);
+    setChecks({});
   }
 
   // ── nav / view state ──────────────────────────────────────────────────────
@@ -77,20 +110,13 @@ export default function App() {
   const [sel, setSel] = useState(27);
   const [modal, setModal] = useState(null);
   const [pick, setPick] = useState(null);
-  const [checks, setChecks] = useState(() => {
-    try {
-      const saved = localStorage.getItem('otto_checks');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return initChecks;
-  });
   const [narration, setNarration] = useState('');
 
   function setLens(l) { setLensRaw(l); setGoal(null); setRecovery(false); }
+
   function toggleCheck(k) {
     setChecks(c => {
       const next = { ...c, [k]: !c[k] };
-      localStorage.setItem('otto_checks', JSON.stringify(next));
       fetch(`/api/tasks/${k}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -103,6 +129,14 @@ export default function App() {
   // ── reshuffle ─────────────────────────────────────────────────────────────
   const [liveTasks, setLiveTasks] = useState(null);
   const [liveBlocks, setLiveBlocks] = useState(null);
+  const [events, setEvents] = useState([]);
+
+  useEffect(() => {
+    const blocks = liveBlocks ?? planData?.blocks ?? [];
+    const tasks  = liveTasks  ?? planData?.tasks  ?? [];
+    const walls  = planData?.profile?.walls ?? [];
+    setEvents(blocksToEvents(blocks, tasks, walls));
+  }, [planData, liveBlocks]);
 
   async function fellBehind() {
     setRecovery(true);
@@ -114,7 +148,7 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           profile: planData.profile,
-          goals: [planData.goal],
+          goals: apiGoals,
           missed_task_ids: missedIds,
         }),
       }).then(r => r.json());
@@ -124,21 +158,17 @@ export default function App() {
     } catch {}
   }
 
-  // Resolve current tasks + blocks (reshuffle overrides setup data)
   const currentTasks = liveTasks ?? planData?.tasks ?? [];
   const currentBlocks = liveBlocks ?? planData?.blocks ?? [];
   const currentWalls = planData?.profile?.walls ?? [];
-  // Support both old single-goal and new multi-goal shape
   const apiGoals = planData?.goals ?? (planData?.goal ? [planData.goal] : []);
 
   function _applyPlanUpdate(data) {
     if (!data?.plan) return;
-    localStorage.setItem('otto_plan', JSON.stringify(data));
     setPlanData(data);
     const dbChecks = {};
     (data.tasks || []).forEach(t => { dbChecks[t.id] = t.status === 'done'; });
     setChecks(dbChecks);
-    localStorage.setItem('otto_checks', JSON.stringify(dbChecks));
   }
 
   async function addGoal(jdText) {
@@ -156,17 +186,41 @@ export default function App() {
     _applyPlanUpdate(data);
   }
 
-  // Map engine tasks → Now view shape; fall back to fixtures before onboarding
-  const nowTasks = currentTasks.length > 0
-    ? currentTasks.map(t => ({
-        k: t.id,
-        t: t.title.replace(/^Build skill:\s*/i, ''),
-        meta: `${t.full_minutes} min · ${t.skill_served}`,
-        done: t.status === 'done',
-        star: t.importance >= 0.7,
-        checked: checks[t.id] ?? false,
-      }))
-    : NOW_TASKS.map(t => ({ ...t, checked: checks[t.k] }));
+  // Handle Google Calendar OAuth callback redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('google') === 'connected') {
+      window.history.replaceState({}, '', window.location.pathname);
+      if (user) {
+        fetch(`/api/google/walls?user_id=${user.id}`)
+          .then(r => r.json())
+          .then(({ walls }) => walls?.length && handleWallsUpdate(walls))
+          .catch(() => {});
+      }
+    }
+  }, [user?.id]);
+
+  function handleWallsUpdate(newWalls) {
+    if (!planData) return;
+    const updated = { ...planData, profile: { ...planData.profile, walls: newWalls } };
+    setPlanData(updated);
+    fetch('/api/plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: updated.profile, goals: apiGoals, user_id: user?.id ?? '' }),
+    }).then(r => r.json()).then(result => {
+      if (result?.plan) _applyPlanUpdate({ ...updated, ...result });
+    }).catch(() => {});
+  }
+
+  const nowTasks = currentTasks.map(t => ({
+    k: t.id,
+    t: t.title.replace(/^Build skill:\s*/i, ''),
+    meta: `${t.full_minutes} min · ${t.skill_served}`,
+    skill: t.skill_served,
+    done: t.status === 'done',
+    star: t.importance >= 0.7,
+    checked: checks[t.id] ?? false,
+  }));
 
   // ── routing ───────────────────────────────────────────────────────────────
   const rawName = planData?.profile?.name || user?.email?.split('@')[0] || '';
@@ -176,7 +230,6 @@ export default function App() {
   if (!user) return <Login onLogin={setUser} />;
   if (!planData) return <Setup onComplete={onSetupComplete} userId={user.id} />;
 
-  // ── main app (original design) ────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 16px' }}>
       <div style={{
@@ -192,14 +245,16 @@ export default function App() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {lens === 'now' && !recovery && (
-              <Now tasks={nowTasks} onToggle={toggleCheck} onFellBehind={fellBehind} onOpenFeasibility={() => setModal('feasibility')} userName={userName} feasible={planData?.plan?.feasible} />
+              <Now tasks={nowTasks} onToggle={toggleCheck} onFellBehind={fellBehind} onOpenFeasibility={() => setModal('feasibility')} userName={userName} feasible={planData?.plan?.feasible} role={planData?.goal?.title ?? planData?.goals?.[0]?.title ?? ''} />
             )}
             {lens === 'now' && recovery && (
-              <Recovery narration={narration} onExit={() => { setRecovery(false); setNarration(''); }} />
+              <Recovery narration={narration} tasks={currentTasks} checks={checks}
+                onExit={() => { setRecovery(false); setNarration(''); }} />
             )}
             {lens === 'calendar' && (
               <Calendar calView={calView} setCalView={setCalView} sel={sel} setSel={setSel}
-                walls={currentWalls} blocks={currentBlocks} tasks={currentTasks} />
+                events={events} setEvents={setEvents}
+                userId={user?.id} onWallsUpdate={handleWallsUpdate} />
             )}
             {lens === 'goals' && !goal && (
               <GoalsList checks={checks} onToggleSub={toggleCheck} onOpenGoal={setGoal}
@@ -207,12 +262,28 @@ export default function App() {
                 onAddGoal={addGoal} onDeleteGoal={deleteGoal} />
             )}
             {lens === 'goals' && goal && (
-              <GoalDetail goalId={goal} checks={checks} onToggleSub={toggleCheck} onClose={() => setGoal(null)}
-                apiGoals={apiGoals} apiTasks={currentTasks} />
+              <GoalDetail goalId={goal} checks={checks} onToggleSub={toggleCheck}
+                onClose={() => setGoal(null)} apiGoals={apiGoals} apiTasks={currentTasks} />
             )}
             {lens === 'stats' && (
               <Stats tasks={currentTasks} checks={checks} blocks={currentBlocks}
                 feasible={planData?.plan?.feasible} goalTitle={planData?.goal?.title} />
+            )}
+            {lens === 'settings' && (
+              <Settings
+                planData={planData}
+                onSave={async (profile) => {
+                  const data = await fetch('/api/plan', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ profile, goals: apiGoals, user_id: user.id }),
+                  }).then(r => r.json());
+                  if (data?.plan) {
+                    _applyPlanUpdate({ ...planData, profile, tasks: data.tasks, blocks: data.plan.blocks, plan: data.plan });
+                    setLens('now');
+                  }
+                }}
+                onStartOver={() => { setPlanData(null); setChecks({}); }}
+              />
             )}
           </div>
         </div>
@@ -227,7 +298,8 @@ export default function App() {
           />
         )}
         {modal === 'tradeoff' && (
-          <Tradeoff tradeoff={planData?.plan?.tradeoff} pick={pick} onPick={setPick} onClose={() => { setModal(null); setPick(null); }} />
+          <Tradeoff tradeoff={planData?.plan?.tradeoff} pick={pick} onPick={setPick}
+            onClose={() => { setModal(null); setPick(null); }} />
         )}
       </div>
     </div>

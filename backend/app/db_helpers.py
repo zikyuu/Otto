@@ -55,12 +55,12 @@ def _rebuild_plan_for_profile(profile_id: str) -> dict:
     sb.table("plans").delete().eq("profile_id", profile_id).execute()
 
     if all_tasks:
-        sb.table("tasks").insert([{
+        sb.table("tasks").upsert([{
             "id": t.id, "goal_id": t.goal_id, "title": t.title,
             "skill_served": t.skill_served, "importance": t.importance,
             "full_minutes": t.full_minutes, "lite_minutes": t.lite_minutes,
             "status": t.status.value if hasattr(t.status, "value") else t.status,
-        } for t in all_tasks]).execute()
+        } for t in all_tasks], on_conflict="id").execute()
 
     plan_row = sb.table("plans").insert({
         "profile_id": profile_id,
@@ -154,12 +154,12 @@ def save_plan(user_id: str, profile: Profile, goal: Goal, tasks: list[Task], pla
         ]).execute()
 
     if tasks:
-        sb.table("tasks").insert([{
+        sb.table("tasks").upsert([{
             "id": t.id, "goal_id": db_goal_id, "title": t.title,
             "skill_served": t.skill_served, "importance": t.importance,
             "full_minutes": t.full_minutes, "lite_minutes": t.lite_minutes,
             "status": t.status.value if hasattr(t.status, "value") else t.status,
-        } for t in tasks]).execute()
+        } for t in tasks], on_conflict="id").execute()
 
     sb.table("plans").delete().eq("profile_id", profile_id).execute()
     plan_row = sb.table("plans").insert({
