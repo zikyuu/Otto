@@ -11,3 +11,5 @@ google-auth-oauthlib>=1.2
 google-api-python-client>=2.130
 python-multipart>=0.0.9
 supabase>=2.0
+faiss-cpu>=1.7
+numpy>=1.26
