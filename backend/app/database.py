@@ -1,27 +1,35 @@
-"""Database client — Supabase REST API via supabase-py.
-
-Uses SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY from .env.
-No direct PostgreSQL connection needed.
-"""
+"""Database setup — Supabase (PostgreSQL) via SQLAlchemy."""
 from __future__ import annotations
 
 import os
 
 from dotenv import load_dotenv
-from supabase import Client, create_client
+from sqlalchemy import create_engine
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 load_dotenv()
 
-_url = os.getenv("SUPABASE_URL", "")
-_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL env var is required (set it in backend/.env)")
 
-if not _url or not _key:
-    raise RuntimeError(
-        "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in backend/.env"
-    )
-
-supabase: Client = create_client(_url, _key)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def get_supabase() -> Client:
-    return supabase
+class Base(DeclarativeBase):
+    pass
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def init_db():
+    from app import db_models  # noqa: F401 — registers models with Base
+
+    Base.metadata.create_all(bind=engine)

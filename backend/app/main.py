@@ -66,6 +66,12 @@ class ChatBody(BaseModel):
     plan_summary: dict = {}
     goals: list[dict] = []
 
+class ResourceRetrievalBody(BaseModel): # input into pipeline in backend with fallback values
+    skill: str
+    role: str
+    slot_minutes: int = 60 
+    user_proficiency: int = 1
+    top_n: int = 5
 
 # ---- helpers --------------------------------------------------------------
 
@@ -210,6 +216,22 @@ def chat(body: ChatBody):
     goals = _goals_from(body.goals) if body.goals else []
     review = direction_review([], goals[0]) if goals else ""
     return {"narration": narrate(body.message, body.plan_summary), "review": review}
+
+@app.post("/api/retrieve/resources")
+def retrieve_resources(body: ResourceRetrievalBody):
+    try:
+        from app.retrieval.pipeline import get_pipeline
+        results = get_pipeline().query(
+            skill=body.skill,
+            role=body.role,
+            slot_minutes=body.slot_minutes,
+            user_proficiency=body.user_proficiency,
+            top_n=body.top_n 
+        ) # returns a list of RankedResource
+        return [r.to_dict() for r in results]
+    except Exception as e:
+        print(f"[retrieve] failed: {e}")
+        return []
 
 # ---- Google Calendar endpoints --------------------------------------------
 
@@ -534,168 +556,6 @@ Return valid JSON only — no markdown, no explanation outside the JSON:
   "conflicts": [ /* ids of events you could not place without a compromise */ ],
   "explanation": "One sentence: what you changed and why (mention specific days)."
 }"""
-
-
-def _build_day_load(events: list) -> str:
-    """Return a human-readable summary of how many events are on each day."""
-    counts: dict[int, list[str]] = {d: [] for d in range(22, 29)}
-    for e in events:
-        if e.day in counts:
-            counts[e.day].append(f"{e.title}({e.category})")
-    day_names = {22:"Mon", 23:"Tue", 24:"Wed", 25:"Thu", 26:"Fri", 27:"Sat", 28:"Sun"}
-    lines = []
-    for d, items in counts.items():
-        tag = " ← HEAVY" if len(items) >= 4 else (" ← light" if len(items) <= 1 else "")
-        lines.append(f"  {day_names[d]} {d}: {len(items)} events{tag}  [{', '.join(items) or 'empty'}]")
-    return "\n".join(lines)
-
-
-@app.post("/api/ai/reschedule", response_model=RescheduleResponse)
-def ai_reschedule(body: RescheduleRequest):
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise HTTPException(503, detail="OPENAI_API_KEY not configured")
-    try:
-        from openai import OpenAI as _OAI
-        c = _OAI(api_key=key)
-    except Exception as e:
-        raise HTTPException(503, detail=str(e))
-
-    day_load = _build_day_load(body.events)
-    events_json = json.dumps([e.model_dump() for e in body.events], indent=2)
-
-    user_msg = (
-        f"Pinned IDs (must not move at all): {body.pinned_ids}\n\n"
-        f"Current day load BEFORE your reschedule:\n{day_load}\n\n"
-        f"Full event list:\n{events_json}\n\n"
-        "Redistribute flexible events so the week is balanced (2–3 events/day). "
-        "Apply the productivity patterns (gym-first days, deep-work in the morning). "
-        "Move events to lighter days before adding a 4th event to any day."
-    )
-
-    r = c.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": _RESCHEDULE_SYSTEM},
-            {"role": "user",   "content": user_msg},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.2,
-        max_tokens=3000,
-    )
-    data = json.loads(r.choices[0].message.content)
-
-    # Sanity-check: reject if AI dropped events
-    returned_ids = {e["id"] for e in data.get("events", [])}
-    sent_ids     = {e.id for e in body.events}
-    if returned_ids != sent_ids:
-        # AI dropped or invented events — fall back by returning input unchanged
-        raise HTTPException(500, detail=f"AI returned wrong event set: missing={sent_ids-returned_ids}")
-
-    return RescheduleResponse(**data)
-
-
-class GoalInput(BaseModel):
-    id: str
-    title: str
-    cat: str
-    pct: int
-    label: str
-    subnote: str
-    direction: str
-    subs: list[dict]
-
-class GoalReviewRequest(BaseModel):
-    goals: list[GoalInput]
-    timeline_weeks: int = 8
-
-class GoalReviewResponse(BaseModel):
-    feasibility: str        # "on-track" | "at-risk" | "infeasible"
-    summary: str
-    timeline_analysis: str
-    focus_recommendation: str
-    suggested_adjustments: list[str]
-    exa_grounded: bool = False
-
-_GOAL_REVIEW_SYSTEM = """\
-You are a direct, evidence-based productivity coach reviewing a learner's goal portfolio.
-Be honest and specific — reference the actual numbers in their progress.
-
-Determine feasibility:
-• "on-track"   — current pace × weeks remaining covers remaining work
-• "at-risk"    — possible but needs significant acceleration or scope cut
-• "infeasible" — mathematically impossible at current pace without a major change
-
-Also judge whether they are focused on the RIGHT activities for the outcome they want.
-Example: a developer prepping for ML engineering shouldn't spend all time on syntax —
-they need retrieval pipelines, evals, and live system-design practice.
-Call out the most important specific gap.
-
-Return valid JSON only (no markdown fences):
-{
-  "feasibility": "on-track|at-risk|infeasible",
-  "summary": "<2-3 sentences: honest overall assessment>",
-  "timeline_analysis": "<specific numbers for the most at-risk goal: pace, remaining %, weeks left>",
-  "focus_recommendation": "<what to spend more time on; what to cut or de-prioritise>",
-  "suggested_adjustments": ["<action 1>", "<action 2>", "<action 3>"]
-}"""
-
-def _exa_goal_context(titles: list[str]) -> str:
-    api_key = os.environ.get("EXA_API_KEY")
-    if not api_key:
-        return ""
-    try:
-        from exa_py import Exa  # type: ignore
-        client = Exa(api_key=api_key)
-        blobs: list[str] = []
-        for title in titles[:3]:
-            res = client.search_and_contents(
-                f"realistic timeline how long to {title} self-study 2025",
-                num_results=2, text={"max_characters": 800},
-            )
-            for r in res.results:
-                blobs.append(getattr(r, "text", "") or "")
-        return " ".join(blobs)[:4000]
-    except Exception:
-        return ""
-
-@app.post("/api/ai/review-goals", response_model=GoalReviewResponse)
-def ai_review_goals(body: GoalReviewRequest):
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise HTTPException(503, detail="OPENAI_API_KEY not configured")
-    try:
-        from openai import OpenAI as _OAI
-        c = _OAI(api_key=key)
-    except Exception as e:
-        raise HTTPException(503, detail=str(e))
-    goals_txt = "\n\n".join(
-        f"Goal: {g.title} ({g.cat})\n"
-        f"Progress: {g.label} ({g.pct}%)\n"
-        f"Subtasks done: {sum(1 for s in g.subs if s.get('done'))}/{len(g.subs)}\n"
-        f"Direction note: {g.direction}\n"
-        f"Subtasks: {', '.join(s['t'] + (' ✓' if s.get('done') else '') for s in g.subs)}"
-        for g in body.goals
-    )
-    exa_ctx = _exa_goal_context([g.title for g in body.goals])
-    exa_block = f"\n\nLive signal from Exa:\n{exa_ctx}" if exa_ctx else ""
-    user_msg = (
-        f"Timeline: {body.timeline_weeks} weeks remaining.\n\n"
-        f"{goals_txt}{exa_block}\n\n"
-        "Review feasibility and focus. Be specific about the most at-risk goal."
-    )
-    r = c.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": _GOAL_REVIEW_SYSTEM},
-            {"role": "user",   "content": user_msg},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.35,
-        max_tokens=1200,
-    )
-    data = json.loads(r.choices[0].message.content)
-    return GoalReviewResponse(**data, exa_grounded=bool(exa_ctx))
 
 # ---- SPA static file serving ---------------------------------------------
 
