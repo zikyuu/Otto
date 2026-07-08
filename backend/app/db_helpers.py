@@ -2,7 +2,7 @@
 from __future__ import annotations
 import time
 
-from app.database import get_supabase
+from app.retrieval.store import _sb as get_supabase
 from app.models import Goal, Plan, Profile, Skill, Task
 
 

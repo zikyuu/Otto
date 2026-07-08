@@ -60,7 +60,9 @@ class RetrievalPipeline:
         return rerank(candidates, slot_minutes, user_proficiency, top_n)
 
     def ingest(self, entry: CorpusEntry) -> bool:
-        # cheap url dedup first — no embedding needed
+        # check Supabase first (survives restarts), then in-memory
+        if store.url_exists(entry.url):
+            return False
         if any(e.url == entry.url for e in self._entries.values()):
             return False
 

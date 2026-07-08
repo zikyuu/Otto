@@ -18,7 +18,7 @@ from pathlib import Path
 
 import io
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,7 +26,6 @@ from pydantic import BaseModel
 
 from app.engine.gaps import derive_tasks
 from app.engine.feasibility import assess
-from app.engine.scheduler import schedule
 from app.llm.extract import parse_resume, parse_jd, narrate, direction_review
 from app.models import Goal, Profile, Skill, Status, Task, Wall
 from app.sources.resources import fetch_resources
@@ -143,9 +142,8 @@ def plan(body: PlanBody):
         try:
             from app.db_helpers import save_plan
             save_plan(body.user_id, profile, goals[0], tasks, result)
-            from app.database import get_supabase
-            sb = get_supabase()
-            row = sb.table("profiles").select("id").eq("session_id", body.user_id).execute()
+            from app.retrieval.store import _sb
+            row = _sb().table("profiles").select("id").eq("session_id", body.user_id).execute()
             if row.data:
                 profile_id = row.data[0]["id"]
         except Exception as e:
@@ -158,9 +156,8 @@ def plan(body: PlanBody):
 @app.get("/api/me/telegram-status")
 def telegram_status(user_id: str):
     try:
-        from app.database import get_supabase
-        sb = get_supabase()
-        row = sb.table("profiles").select("telegram_chat_id").eq("session_id", user_id).execute()
+        from app.retrieval.store import _sb
+        row = _sb().table("profiles").select("telegram_chat_id").eq("session_id", user_id).execute()
         if row.data and row.data[0].get("telegram_chat_id"):
             return {"linked": True}
     except Exception:
@@ -203,9 +200,8 @@ class TaskStatusBody(BaseModel):
 @app.patch("/api/tasks/{task_id}/status")
 def update_task_status(task_id: str, body: TaskStatusBody):
     try:
-        from app.database import get_supabase
-        sb = get_supabase()
-        sb.table("tasks").update({"status": body.status}).eq("id", task_id).execute()
+        from app.retrieval.store import _sb
+        _sb().table("tasks").update({"status": body.status}).eq("id", task_id).execute()
         return {"ok": True}
     except Exception as e:
         print(f"[db] task status update failed: {e}")
@@ -491,71 +487,6 @@ def ai_review_goals(body: GoalReviewRequest):
     data = json.loads(r.choices[0].message.content)
     return GoalReviewResponse(**data, exa_grounded=bool(exa_ctx))
 
-
-# ---- AI: smart reschedule & goal review ----------------------------------
-#
-# Require OPENAI_API_KEY in backend/.env  (EXA_API_KEY optional for richer goal review)
-# Both endpoints degrade gracefully: 503 lets the frontend fall back to client-side logic.
-
-class CalEvent(BaseModel):
-    id: str
-    title: str
-    day: int          # June date 22-28
-    startMin: int     # minutes from midnight, multiples of 15
-    durationMin: int
-    color: str = ""   # optional — frontend derives display color from category
-    category: str
-    fixed: bool = False
-
-class RescheduleRequest(BaseModel):
-    events: list[CalEvent]
-    pinned_ids: list[str]   # IDs user explicitly moved — must stay put
-
-class RescheduleResponse(BaseModel):
-    events: list[dict]
-    conflicts: list[str]    # IDs the AI couldn't place ideally
-    explanation: str
-
-_RESCHEDULE_SYSTEM = """\
-You are an expert personal productivity scheduler for a solo job-seeker.
-The week is Mon 22 Jun – Sun 28 Jun 2026 (day integers 22-28).
-
-━━━ ABSOLUTE HARD RULES (violating any = wrong answer) ━━━
-1. Events in pinned_ids: NEVER change their day or startMin. Copy them exactly.
-2. Events with fixed=true: NEVER change their day or startMin. Copy them exactly.
-3. Zero overlaps on any day: for any two events on the same day,
-   (earlier.startMin + earlier.durationMin) <= later.startMin
-4. Every startMin must be a multiple of 15.
-5. Every event must sit inside [480, 1380) minutes (08:00–23:00).
-6. Return ALL events — never drop one.
-
-━━━ DISTRIBUTION RULE (most important scheduling goal) ━━━
-SPREAD events across the whole week. Do NOT cluster flexible events onto one day.
-Target load per day: 2–3 events. Hard cap: 4 events per day maximum.
-If moving an event to a day would push that day over 4 events, pick a different day.
-Empty days are wasted capacity — fill them before adding a 4th event to any day.
-
-━━━ PRODUCTIVITY PATTERN (apply after distribution) ━━━
-Category → optimal time of day:
-  gym / life    → earliest morning slot available (before 09:00 ideally)
-  leetcode      → 08:00–12:00 (needs fresh focus)
-  llm / system-design / deep work → 09:00–13:00 (peak cognitive window)
-  interview     → whenever fixed/pinned dictates; otherwise morning
-  admin / life  → 13:00–18:00 (lower cognitive load tasks)
-
-On any day that already has a gym event → schedule it first, then put all
-deep-work (llm, leetcode, system-design) next, then admin last.
-This gym-first pattern produces ~90% efficiency on those days — preserve it.
-
-Do NOT stack more than 3 hours of deep-work without at least a 15-min gap.
-
-━━━ OUTPUT FORMAT ━━━
-Return valid JSON only — no markdown, no explanation outside the JSON:
-{
-  "events": [ /* ALL events; each must have every original field plus updated day & startMin */ ],
-  "conflicts": [ /* ids of events you could not place without a compromise */ ],
-  "explanation": "One sentence: what you changed and why (mention specific days)."
-}"""
 
 # ---- SPA static file serving ---------------------------------------------
 
