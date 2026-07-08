@@ -1,6 +1,7 @@
 # store.py: stores the faiss entries (embedded stuff) into supabase as well :-)
 from __future__ import annotations
 import datetime
+import json
 import os
 from supabase import create_client
 from app.retrieval.models import CorpusEntry
@@ -10,7 +11,11 @@ _sb_client = None
 def _sb():
     global _sb_client
     if _sb_client is None:
-        _sb_client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+        url = os.getenv("SUPABASE_URL", "")
+        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+        if not url or not key:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
+        _sb_client = create_client(url, key)
     return _sb_client
 
 def load_all():
@@ -30,7 +35,7 @@ def load_all():
                 source_quality=r.get("source_quality", 0.7),
                 tags=r.get("tags") or [],
                 fetched_at=r.get("fetched_at", ""),
-                embedding=r.get("embedding") or [],
+                embedding=json.loads(r["embedding"]) if isinstance(r.get("embedding"), str) else (r.get("embedding") or []),
             ))
         except Exception as e:
             print(f"[store] skipping malformed row {r.get('id')}: {e}")

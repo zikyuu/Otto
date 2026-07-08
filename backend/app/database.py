@@ -30,6 +30,4 @@ def get_db():
 
 
 def init_db():
-    from app import db_models  # noqa: F401 — registers models with Base
-
     Base.metadata.create_all(bind=engine)
