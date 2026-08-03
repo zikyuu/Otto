@@ -10,13 +10,13 @@ never the reverse. That one-way dependency is what keeps the pieces swappable.
 
   WHO IS THE USER?
     Skill           one skill the user has, with a strength rating (0–3)
-    TimeBlock       a dumb blocked slot (recurring meeting, sleep) the scheduler avoids 
+    TimeBlock       a dumb blocked slot (recurring meeting, sleep) the scheduler avoids
                     (DIFFERENT from block)
     Profile         full user picture: skills, free time, blocked slots, learnt behaviour
 
   WHAT DO THEY WANT TO ACHIEVE?
     Goal            a job/target with a deadline and required skills
-    Status          label on a Task: todo / done / missed
+    Status          label on a Task: todo / done / missed / meatball_grinder
     Category        what type of work a task is (deep_work, admin, physical …)
     EffortTier      how cognitively heavy a task is (derived from duration)
     EventAnchor     the link between a Task and a CalendarEvent ("do before interview")
@@ -30,7 +30,7 @@ never the reverse. That one-way dependency is what keeps the pieces swappable.
 
   SCHEDULER OUTPUT
     Block           a task placed into a concrete time slot (scheduler output)
-    Plan            the full week: all Blocks + what didn't fit + carried-forward
+    Plan            the full week: all Blocks + what didn't fit + Meatball Grinder basket
 
   LEARNING SIGNALS (feed the learning engine, never drive the scheduler directly)
     ReflectionChoice  the 5 options in the post-task check-in sheet
@@ -52,9 +52,17 @@ from typing import Any, Optional
 # ---------------------------------------------------------------------------
 
 class Status(str, Enum):
-    TODO   = "todo"
-    DONE   = "done"
-    MISSED = "missed"
+    TODO             = "todo"
+    DONE             = "done"
+    MISSED           = "missed"
+    MEATBALL_GRINDER = "meatball_grinder"  # user explicitly parked this — sits in the Meatball Grinder, never auto-rescheduled
+
+
+class OversleepTriage(str, Enum):
+    RESCHEDULE_TODAY  = "reschedule_today"  # re-slot into remaining free time today
+    PUSH_TOMORROW     = "push_tomorrow"     # move to tomorrow's schedule
+    MEATBALL_GRINDER  = "meatball_grinder"  # park in the Meatball Grinder, don't auto-reschedule
+    DROP              = "drop"              # delete entirely
 
 
 class Category(str, Enum):
@@ -124,6 +132,7 @@ class Profile:
     # what % of planned work the user actually finishes (0..1), cold-start: 0.8
     completion_rate: float = 0.8  # renamed from velocity — more self-explanatory
 
+    priority_windows: list[PriorityWindow] = field(default_factory=list) #user-specified task ranking for a given time window, helps with task displacement when there is a impending deadline but no available slot AT ALL
     # per-category velocity: ratio of actual/planned time
     # >1.0 means user takes longer than planned for that category
     # cold-start defaults are research-backed (people underestimate deep work by ~25-30%)
@@ -137,10 +146,28 @@ class Profile:
         }
     )
 
+    # scheduling window — user can drag the sleep block on the calendar to adjust
+    # stored as minutes from midnight; supports all-nighters via values > 24*60
+    # e.g. sleep at 4am = day_end_min 1680 (28*60), extending the workable window
+    day_start_min: int = 8 * 60   # default wake: 08:00 (480)
+    day_end_min:   int = 23 * 60  # default sleep: 23:00 (1380)
+
     # timing preferences — learnt from energy logs + actuals over time
     peak_window: tuple[int, int] = (9, 12)  # hours of day, cold-start default
     post_meal_slump_min: int = 45           # low-energy buffer after 12:00
     planning_bias: float = 0.80            # cap daily scheduled load to 80% of free hours
+
+    # how long it takes to get into the zone per category (cold-start defaults)
+    # scheduler adds this to required slot size so short gaps don't get deep work
+    ramp_up_min: dict[str, int] = field(
+        default_factory=lambda: {
+            "deep_work": 15,
+            "admin":      0,
+            "creative":  10,
+            "physical":   5,
+            "social":     0,
+        }
+    )
 
     # learning signal stores — appended to as user interacts, read by learning.py
     energy_logs: list[EnergyLog] = field(default_factory=list)
@@ -243,9 +270,12 @@ class Task:
     completion_mode: str = "percentage" #slider only, user drags to adjust 
     completion_percentage: float = 0.0 # 0..1, used for progress bar and learning signals
 
+    non_negotiable: bool = False  # True = user has marked this task as non-negotiable, scheduler will not displace it
+    user_rank: int | None = None  # user-specified rank for this task, used in priority windows
     # state
     status: Status = Status.TODO
     carried_forward: bool = False  # True = moved from a previously missed day
+    grinder_note: str = ""         # why the user parked it — shown in the Meatball Grinder
 
     @property
     def est_minutes(self) -> int:
@@ -305,9 +335,11 @@ class Block:
     start_min: int
     end_min: int
     task_id: str
-    lite: bool = False  # True if scheduled as the downscoped (shorter) variant
-    session_notes: str = ""  # user can add notes after the session, saved to learning signals
-    session_pct_delta: float = 0.0  # user can adjust the completion percentage after the session
+    lite: bool = False        # True if scheduled as the downscoped (shorter) variant
+    is_split: bool = False    # True if this is one session of a multi-session task
+    overpacked: bool = False  # True if slot is slightly tight — shows ! on calendar
+    session_notes: str = ""
+    session_pct_delta: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -317,8 +349,9 @@ class Block:
 class Plan:
     """The full scheduler output for a week."""
     blocks: list[Block] = field(default_factory=list)
-    at_risk: list[str] = field(default_factory=list)          # task_ids that didn't fit before deadline
-    carried_forward: list[str] = field(default_factory=list)  # task_ids moved from a missed day
+    at_risk: list[str] = field(default_factory=list)              # task_ids scheduler couldn't fit — will retry next run
+    carried_forward: list[str] = field(default_factory=list)      # task_ids surfaced from yesterday's misses
+    meatball_grinder: list[str] = field(default_factory=list)     # task_ids user explicitly parked — never auto-rescheduled
     feasible: bool = True
     tradeoff: Optional[dict] = None  # {"options": [...], "reason": "..."} shown when nothing fits
 
@@ -327,6 +360,7 @@ class Plan:
             "blocks": [b.to_dict() for b in self.blocks],
             "at_risk": self.at_risk,
             "carried_forward": self.carried_forward,
+            "meatball_grinder": self.meatball_grinder,
             "feasible": self.feasible,
             "tradeoff": self.tradeoff,
         }
@@ -364,7 +398,8 @@ class TaskReflection:
     ts: str
     choice: ReflectionChoice
     planned_minutes: int
-    actual_minutes: int  # captured from the drag
+    actual_minutes: int       # captured from the drag
+    category: str = "deep_work"  # passed by API from task — tells learning.py which velocity bucket to update
 
 
 @dataclass
@@ -375,3 +410,57 @@ class TaskCompletion:
     planned_minutes: int
     done: bool
     ts: str = ""
+
+@dataclass 
+class PriorityWindow: 
+    #ranks importance list for a given time window
+    #helps with task displacement when there is a impending deadline but no availabe slot AT ALL
+    window: str #week, month, year 
+    start_iso: str
+    end_iso: str
+    ranked_task_ids: list[str]     # most → least important, user-ordered
+    non_negotiable_ids: list[str]  # these can displace other tasks when deadline hits
+
+
+# ---------------------------------------------------------------------------
+# OVERSLEEP
+# ---------------------------------------------------------------------------
+
+@dataclass
+class OversleepEvent:
+    """Recorded when the user wakes up later than their intended day_start_min.
+    Triggers the triage UI — each displaced task gets an OversleepTriage choice.
+    After triage, scheduler re-runs with actual_wake_min as the new day_start_min."""
+    date_iso: str          # which day this happened — "2026-08-04"
+    intended_wake_min: int # profile.day_start_min before oversleep e.g. 480 (8am)
+    actual_wake_min: int   # when they actually woke e.g. 660 (11am)
+    displaced_task_ids: list[str] = field(default_factory=list)
+    # task IDs whose scheduled blocks fell in the lost window (intended→actual wake)
+
+    @property
+    def lost_minutes(self) -> int:
+        return self.actual_wake_min - self.intended_wake_min
+
+
+@dataclass
+class OversleepTriageDecision:
+    """The user's triage choice for one displaced task after an oversleep event."""
+    task_id: str
+    choice: OversleepTriage
+    date_iso: str  # which oversleep event this belongs to
+
+
+# ---------------------------------------------------------------------------
+# MEATBALL GRINDER 🍖
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MeatballGrinderEntry:
+    """A task the user has explicitly parked — not auto-rescheduled, sits in the Meatball Grinder.
+    Different from at_risk (scheduler couldn't fit it) — this is a deliberate user choice.
+    User can pull it back into the active schedule at any time."""
+    task_id: str
+    parked_iso: str        # when it was parked
+    note: str = ""         # why they parked it (copied from task.grinder_note)
+    source: str = "manual" # "manual" | "oversleep_triage" | "displacement"
+    # source tells the UI where this came from so it can show the right context

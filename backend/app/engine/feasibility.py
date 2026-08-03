@@ -7,7 +7,7 @@ and it comes from math, not a prompt.
 """
 from __future__ import annotations
 
-from app.engine.scheduler import DAY_START, DAY_END, schedule
+from app.engine.scheduler import schedule
 from app.models import Plan, Profile, Task, TimeBlock as Wall
 
 
