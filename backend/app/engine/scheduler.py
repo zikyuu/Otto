@@ -16,7 +16,7 @@ Tomorrow's team: this file is the moat. Keep it pure — no LLM, no I/O.
 """
 from __future__ import annotations
 
-from app.models import Block, Plan, Profile, Task, Wall
+from app.models import Block, Plan, Profile, Task, TimeBlock as Wall
 
 DAY_START = 8 * 60     # 08:00 waking window
 DAY_END = 23 * 60      # 23:00

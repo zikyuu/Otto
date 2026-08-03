@@ -8,7 +8,7 @@ and it comes from math, not a prompt.
 from __future__ import annotations
 
 from app.engine.scheduler import DAY_START, DAY_END, schedule
-from app.models import Plan, Profile, Task, Wall
+from app.models import Plan, Profile, Task, TimeBlock as Wall
 
 
 def required_minutes(tasks: list[Task], downscope: bool = False) -> int:

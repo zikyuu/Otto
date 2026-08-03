@@ -1,11 +1,44 @@
 """The data model — the spine of the whole system.
 
 This is the CONTRACT every teammate codes against. The engine, the LLM layer,
-the adapters, and the frontend all read/write these shapes. Lock this tonight;
-if it's stable, tomorrow parallelizes cleanly.
+the adapters, and the frontend all read/write these shapes.
 
 Nothing here imports from engine/, llm/, or sources/ — those depend on THIS,
 never the reverse. That one-way dependency is what keeps the pieces swappable.
+
+━━━ CLASS MAP (if anyone is confused HAHAHHA)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  WHO IS THE USER?
+    Skill           one skill the user has, with a strength rating (0–3)
+    TimeBlock       a dumb blocked slot (recurring meeting, sleep) the scheduler avoids 
+                    (DIFFERENT from block)
+    Profile         full user picture: skills, free time, blocked slots, learnt behaviour
+
+  WHAT DO THEY WANT TO ACHIEVE?
+    Goal            a job/target with a deadline and required skills
+    Status          label on a Task: todo / done / missed
+    Category        what type of work a task is (deep_work, admin, physical …)
+    EffortTier      how cognitively heavy a task is (derived from duration)
+    EventAnchor     the link between a Task and a CalendarEvent ("do before interview")
+    LinkRelation    the type of time dependency (before, after, same_day …)
+    Task            one schedulable unit of work (study task, errand, deep work block)
+                    ← now covers both goal-generated tasks AND manual user tasks
+
+  CALENDAR
+    CalendarEvent   a real event with title, time, confirmed/TBC state
+                    ← different from TimeBlock: has identity and can anchor linked tasks
+
+  SCHEDULER OUTPUT
+    Block           a task placed into a concrete time slot (scheduler output)
+    Plan            the full week: all Blocks + what didn't fit + carried-forward
+
+  LEARNING SIGNALS (feed the learning engine, never drive the scheduler directly)
+    ReflectionChoice  the 5 options in the post-task check-in sheet
+    EnergyLog         one tap of the + energy button → feeds peak_window learning
+    OffTrackLog       user labels a disruption → excluded from velocity penalty
+    TaskReflection    post-task check-in after dragging actual end time
+    TaskCompletion    simple done/not-done record for overall completion_rate
+                      ← renamed from CompletionEvent
 """
 from __future__ import annotations
 
@@ -14,96 +47,267 @@ from enum import Enum
 from typing import Any, Optional
 
 
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
 class Status(str, Enum):
-    TODO = "todo"
-    DONE = "done"
+    TODO   = "todo"
+    DONE   = "done"
     MISSED = "missed"
 
 
+class Category(str, Enum):
+    DEEP_WORK = "deep_work"  # coding, studying, writing — needs peak window
+    ADMIN     = "admin"      # emails, scheduling, forms — anytime
+    CREATIVE  = "creative"   # design, brainstorming — moderate energy needed
+    PHYSICAL  = "physical"   # gym, walk — energy-restoring, not draining
+    SOCIAL    = "social"     # meetings, calls — draining, needs recovery after
+
+
+class EffortTier(str, Enum):
+    LOW  = "low"   # < 30 min   — can go anywhere in the day
+    MED  = "med"   # 30–90 min  — mild preference for good energy
+    HIGH = "high"  # 90–180 min — peak window preferred
+    DEEP = "deep"  # 3 hr+      — peak window only, max 1 per day
+
+
+class LinkRelation(str, Enum):
+    BEFORE             = "before"              # must finish before anchor starts
+    AFTER              = "after"               # cannot start until anchor ends
+    SAME_DAY           = "same_day"            # flexible within anchor's calendar day
+    WITHIN_DAYS_BEFORE = "within_days_before"  # before, but no earlier than X days out
+
+
+class ReflectionChoice(str, Enum):
+    OUTLIER     = "outlier"      # just tired today — don't update velocity
+    HARDER      = "harder"       # task genuinely harder than estimated
+    INTERRUPTED = "interrupted"  # external disruption — don't penalise velocity
+    GAP         = "gap"          # fundamental skill gap — flag to goals view
+    NAILED      = "nailed"       # finished on time or early — positive signal
+
+
+# ---------------------------------------------------------------------------
+# WHO IS THE USER?
+# ---------------------------------------------------------------------------
+
 @dataclass
 class Skill:
+    """One skill the user has, with a strength rating."""
     id: str
     name: str
-    proficiency: int = 0  # 0 none .. 3 strong
+    proficiency: int = 0  # 0=none · 1=basic · 2=solid · 3=strong
 
 
 @dataclass
-class Wall:
-    """A blocked time the scheduler must not overlap. From a ScheduleSource."""
-    day: int           # 0=Mon .. 6=Sun (demo runs a single week)
-    start_min: int     # minutes from midnight, e.g. 540 = 09:00
+class TimeBlock:
+    """A fixed blocked slot the scheduler must not touch.
+    e.g. a recurring standup, lunch, commute.
+    Renamed from Wall — same concept, clearer name."""
+    day: int        # 0=Mon .. 6=Sun
+    start_min: int  # minutes from midnight, e.g. 540 = 09:00
     end_min: int
     label: str = ""
 
 
 @dataclass
 class Profile:
+    """Full picture of the user: skills, availability, and learnt scheduling behaviour.
+    The scheduler reads this on every call — richer profile = smarter schedule."""
+
+    # static setup
     skills: list[Skill] = field(default_factory=list)
     free_hours_per_day: float = 3.0
-    walls: list[Wall] = field(default_factory=list)
-    # rolling completion rate 0..1; cold-start seeded for the demo
-    velocity: float = 0.8
+    time_blocks: list[TimeBlock] = field(default_factory=list)  # renamed from walls
+
+    # overall completion pace
+    # what % of planned work the user actually finishes (0..1), cold-start: 0.8
+    completion_rate: float = 0.8  # renamed from velocity — more self-explanatory
+
+    # per-category velocity: ratio of actual/planned time
+    # >1.0 means user takes longer than planned for that category
+    # cold-start defaults are research-backed (people underestimate deep work by ~25-30%)
+    avg_velocity: dict[str, float] = field(
+        default_factory=lambda: {
+            "deep_work": 1.3,
+            "admin":     1.0,
+            "creative":  1.2,
+            "physical":  1.0,
+            "social":    1.0,
+        }
+    )
+
+    # timing preferences — learnt from energy logs + actuals over time
+    peak_window: tuple[int, int] = (9, 12)  # hours of day, cold-start default
+    post_meal_slump_min: int = 45           # low-energy buffer after 12:00
+    planning_bias: float = 0.80            # cap daily scheduled load to 80% of free hours
+
+    # learning signal stores — appended to as user interacts, read by learning.py
+    energy_logs: list[EnergyLog] = field(default_factory=list)
+    reflections: list[TaskReflection] = field(default_factory=list)
+    off_track_logs: list[OffTrackLog] = field(default_factory=list)
+
+    # from weekly mascot chat — highest priority, overrides all derived signals
+    stated_rules: list[str] = field(default_factory=list)
 
     def has_skill(self, name: str, min_prof: int = 2) -> bool:
-        return any(s.name.lower() == name.lower() and s.proficiency >= min_prof
-                   for s in self.skills)
+        return any(
+            s.name.lower() == name.lower() and s.proficiency >= min_prof
+            for s in self.skills
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "skills": [asdict(s) for s in self.skills],
             "free_hours_per_day": self.free_hours_per_day,
-            "walls": [asdict(w) for w in self.walls],
-            "velocity": self.velocity,
+            "time_blocks": [asdict(b) for b in self.time_blocks],
+            "completion_rate": self.completion_rate,
+            "avg_velocity": self.avg_velocity,
+            "peak_window": list(self.peak_window),
+            "post_meal_slump_min": self.post_meal_slump_min,
+            "planning_bias": self.planning_bias,
+            "stated_rules": self.stated_rules,
         }
 
 
+# ---------------------------------------------------------------------------
+# WHAT DO THEY WANT TO ACHIEVE?
+# ---------------------------------------------------------------------------
+
 @dataclass
 class Goal:
-    """A job the user is targeting. From a JobSource."""
+    """A job or target the user is working toward.
+    gaps.py compares required_skills against Profile.skills and generates
+    Tasks to close the gap."""
     id: str
     title: str
     jd_text: str = ""
-    close_date: str = ""          # ISO date; the hard deadline
+    close_date: str = ""           # ISO date — the hard deadline
     required_skills: list[str] = field(default_factory=list)
-    fit: float = 0.5             # 0..1, becomes a priority weight
+    fit: float = 0.5              # 0..1 match quality, used as priority weight
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass
+class EventAnchor:
+    """The link between a Task and a CalendarEvent.
+    Tells the scheduler: place this task before/after/same-day as that event."""
+    anchor_event_id: str
+    relation: LinkRelation
+    within_days: int | None = None  # only used for WITHIN_DAYS_BEFORE
+
+
+@dataclass
+class ChecklistItem:
+    """A sub-item of a Task's checklist.
+    Incomplete items carry forward to the next day."""
+    '''autonormalisation --> when 1 new item is added, all weights rescale to sum to 100 -> DONT MAKE OTTO USERS DO MATH HAHAHHA'''
+    text: str
+    done: bool = False
+    weight: float | None = None  
+
+@dataclass
 class Task:
-    """A unit of prep/learning. Produced by gap-derivation, placed by the
-    scheduler. full/lite variants enable graceful downscoping when behind."""
+    """One schedulable unit of work.
+
+    Two origins:
+      - Goal task: auto-generated by gaps.py from a skill gap (goal_id is set)
+      - Manual task: created by the user directly (goal_id is None)
+
+    Both go through the same scheduler."""
     id: str
     title: str
-    skill_served: str
-    goal_id: str
-    importance: float                 # weight = fit * urgency, set by engine
-    full_minutes: int
-    lite_minutes: int
-    prereq_ids: list[str] = field(default_factory=list)
+    duration_planned: int   # minutes — replaces full_minutes for manual tasks
+
+    importance: float = 1.0  # priority weight; engine sets this for goal tasks, 1.0 for manual
+
+    # goal connection — optional, only set for goal-generated tasks
+    goal_id: str | None = None
+    skill_served: str | None = None
+    lite_minutes: int | None = None  # shorter downscoped version for when behind
+
+    # what kind of work — used by scheduler for peak-window gating
+    category: Category = Category.DEEP_WORK
+    effort_tier: EffortTier = EffortTier.MED  # derive from duration if not explicitly set
+
+    # scheduling constraints
+    prereq_ids: list[str] = field(default_factory=list)  # task IDs that must be placed first
+    link: EventAnchor | None = None                       # time-anchor to a CalendarEvent
+    deadline_iso: str | None = None                       # ISO date — hard deadline
+    fixed: bool = False                                   # True = immovable by scheduler
+
+    # content
+    checklist: list[ChecklistItem] = field(default_factory=list)  # sub-items; incomplete ones carry forward
+    completion_mode: str = "percentage" #slider only, user drags to adjust 
+    completion_percentage: float = 0.0 # 0..1, used for progress bar and learning signals
+
+    # state
     status: Status = Status.TODO
+    carried_forward: bool = False  # True = moved from a previously missed day
 
     @property
     def est_minutes(self) -> int:
-        return self.full_minutes
+        return self.duration_planned
+
+    @property
+    def full_minutes(self) -> int:
+        # kept for backwards compatibility with scheduler.py and gaps.py
+        return self.duration_planned
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["status"] = self.status.value
+        d["category"] = self.category.value
+        d["effort_tier"] = self.effort_tier.value
         d["est_minutes"] = self.est_minutes
+        if self.link:
+            d["link"]["relation"] = self.link.relation.value
         return d
 
 
+# ---------------------------------------------------------------------------
+# CALENDAR
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CalendarEvent:
+    """A real calendar event — meeting, interview, gym class.
+
+    Different from TimeBlock:
+      TimeBlock  = dumb blocked slot, no identity, scheduler just avoids it
+      CalendarEvent = has a title, confirmed/TBC state, and can be the
+                      anchor target for a linked Task"""
+    id: str
+    title: str
+    start_iso: str           # "2026-07-29T10:00"
+    end_iso: str
+    category: Category = Category.SOCIAL
+    fixed: bool = True       # False = user can reschedule it
+    confirmed: bool = True   # False = TBC, renders dashed on calendar
+
+    def to_dict(self) -> dict[str, Any]:
+        d = asdict(self)
+        d["category"] = self.category.value
+        return d
+
+
+# ---------------------------------------------------------------------------
+# SCHEDULER OUTPUT
+# ---------------------------------------------------------------------------
+
 @dataclass
 class Block:
-    """Scheduler output: a task placed in a concrete time slot."""
+    """Scheduler output: a Task placed into a concrete time slot.
+    This is what gets drawn as a block on the calendar."""
     day: int
     start_min: int
     end_min: int
     task_id: str
-    lite: bool = False  # True if scheduled as the downscoped variant
+    lite: bool = False  # True if scheduled as the downscoped (shorter) variant
+    session_notes: str = ""  # user can add notes after the session, saved to learning signals
+    session_pct_delta: float = 0.0  # user can adjust the completion percentage after the session
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -113,21 +317,60 @@ class Block:
 class Plan:
     """The full scheduler output for a week."""
     blocks: list[Block] = field(default_factory=list)
-    at_risk: list[str] = field(default_factory=list)   # task_ids that didn't fit
+    at_risk: list[str] = field(default_factory=list)          # task_ids that didn't fit before deadline
+    carried_forward: list[str] = field(default_factory=list)  # task_ids moved from a missed day
     feasible: bool = True
-    tradeoff: Optional[dict] = None  # {"options": [...], "reason": "..."}
+    tradeoff: Optional[dict] = None  # {"options": [...], "reason": "..."} shown when nothing fits
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "blocks": [b.to_dict() for b in self.blocks],
             "at_risk": self.at_risk,
+            "carried_forward": self.carried_forward,
             "feasible": self.feasible,
             "tradeoff": self.tradeoff,
         }
 
 
+# ---------------------------------------------------------------------------
+# LEARNING SIGNALS
+# ---------------------------------------------------------------------------
+
 @dataclass
-class CompletionEvent:
+class EnergyLog:
+    """One tap of the + energy button on the live timeline.
+    Accumulated over weeks → learning.py uses these to update Profile.peak_window."""
+    ts: str     # ISO datetime — "2026-07-29T09:30"
+    level: int  # 1=drained · 2=tired · 3=neutral · 4=in the zone · 5=energised
+
+
+@dataclass
+class OffTrackLog:
+    """User labels a time block where they went off-track.
+    Tells the learning model WHY a task overran — so velocity isn't wrongly penalised
+    for things outside the user's control (emergency, interruption)."""
+    ts: str
+    duration_min: int
+    reason: str              # "doomscrolled" | "messages" | "couldnt_focus"
+                             # | "break" | "medical" | "family" | "work_crisis"
+    task_id: str | None = None
+
+
+@dataclass
+class TaskReflection:
+    """Post-task check-in, triggered when user drags the actual end time on the timeline.
+    The single most important learning signal — determines whether and how velocity updates."""
+    task_id: str
+    ts: str
+    choice: ReflectionChoice
+    planned_minutes: int
+    actual_minutes: int  # captured from the drag
+
+
+@dataclass
+class TaskCompletion:
+    """Simple done/not-done record used for overall completion_rate tracking.
+    Renamed from CompletionEvent — same data, clearer name."""
     task_id: str
     planned_minutes: int
     done: bool

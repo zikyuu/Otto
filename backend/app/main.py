@@ -27,7 +27,7 @@ from app.engine.gaps import derive_tasks
 from app.engine.feasibility import assess
 from app.engine.scheduler import schedule
 from app.llm.extract import parse_resume, parse_jd, narrate, direction_review
-from app.models import Goal, Profile, Skill, Status, Task, Wall
+from app.models import Goal, Profile, Skill, Status, Task, TimeBlock as Wall
 
 DEMO = json.loads((Path(__file__).parent / "demo_data" / "demo.json").read_text())
 
