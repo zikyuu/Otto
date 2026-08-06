@@ -1,6 +1,6 @@
 import eatingImg from '../assets/mascots/eating.png';
 
-export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }) {
+export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, onAddTask }) {
   return (
     <div style={{ animation: 'fadeIn .45s ease' }}>
       {/* Hero */}
@@ -98,10 +98,19 @@ export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility }
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 22, color: '#4A3526' }}>Today, in order</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div onClick={onAddTask} style={{
+              cursor: 'pointer', fontWeight: 800, fontSize: 18, color: '#fff',
+              background: 'linear-gradient(135deg,#C0894F,#A8703E)',
+              borderRadius: 999, width: 34, height: 34,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 12px -6px rgba(150,108,64,.6)',
+            }}>+</div>
           <div onClick={onFellBehind} style={{
             cursor: 'pointer', fontWeight: 700, fontSize: 13, color: '#8C7A64',
             border: '1.5px solid #E1D5C0', borderRadius: 999, padding: '8px 15px',
           }}>I fell behind →</div>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
