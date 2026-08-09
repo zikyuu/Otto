@@ -125,29 +125,30 @@ export const DEFAULT_CAT_COLOR = { bg:'#EEEBE6', accent:'#8C7E6A', text:'#4A3E30
 // TODO (backend dev): replace INITIAL_EVENTS with data from GET /api/plan
 // Map Block[] + Task[] → CalEvent[]: frontendDay = block.day + 22 (0-indexed Mon-Sun)
 // ---------------------------------------------------------------------------
+// Week of Aug 4–10 2026 (Mon=4, Tue=5, Wed=6, Thu=7, Fri=8, Sat=9, Sun=10)
 export const INITIAL_EVENTS = [
-  // Monday 22
-  { id:'e1',  title:'RAG pipeline design',         day:22, startMin:9*60,     durationMin:90, category:'llm',           fixed:false },
-  { id:'e2',  title:'Reply to recruiters',          day:22, startMin:11*60,    durationMin:15, category:'admin',         fixed:false },
-  // Tuesday 23
-  { id:'e3',  title:'System design mock',           day:23, startMin:10*60,    durationMin:60, category:'interview',     fixed:true  },
-  { id:'e4',  title:'LeetCode — 2 mediums',         day:23, startMin:14*60,    durationMin:30, category:'leetcode',      fixed:false },
-  // Wednesday 24
-  { id:'e5',  title:'Recruiter call — Meta',        day:24, startMin:11*60,    durationMin:30, category:'interview',     fixed:true  },
-  { id:'e6',  title:'Gym session',                  day:24, startMin:17*60+30, durationMin:60, category:'gym',           fixed:true  },
-  // Thursday 25
-  { id:'e7',  title:'Full LeetCode set',            day:25, startMin:9*60,     durationMin:60, category:'leetcode',      fixed:false },
-  { id:'e8',  title:'Onsite prep — system design',  day:25, startMin:14*60,    durationMin:90, category:'system-design', fixed:false },
-  // Friday 26
-  { id:'e9',  title:'Gym session',                  day:26, startMin:8*60+30,  durationMin:60, category:'gym',           fixed:true  },
-  { id:'e10', title:'Apply to 3 roles',             day:26, startMin:11*60,    durationMin:45, category:'admin',         fixed:false },
-  // Saturday 27
-  { id:'e11', title:'Add embeddings + pgvector',    day:27, startMin:10*60,    durationMin:45, category:'llm',           fixed:false },
-  { id:'e12', title:'Daily LeetCode',               day:27, startMin:11*60,    durationMin:20, category:'leetcode',      fixed:false },
-  { id:'e13', title:'Evening walk · 8k steps',      day:27, startMin:18*60+30, durationMin:30, category:'gym',           fixed:false },
-  // Sunday 28
-  { id:'e14', title:'Meal prep',                    day:28, startMin:12*60,    durationMin:45, category:'life',          fixed:false },
-  { id:'e15', title:'Week review + next plan',      day:28, startMin:16*60,    durationMin:30, category:'admin',         fixed:false },
+  // Monday Aug 4
+  { id:'e1',  title:'RAG pipeline design',         day:4,  startMin:9*60,     durationMin:90, category:'llm',           fixed:false },
+  { id:'e2',  title:'Reply to recruiters',          day:4,  startMin:11*60,    durationMin:15, category:'admin',         fixed:false },
+  // Tuesday Aug 5
+  { id:'e3',  title:'System design mock',           day:5,  startMin:10*60,    durationMin:60, category:'interview',     fixed:true  },
+  { id:'e4',  title:'LeetCode — 2 mediums',         day:5,  startMin:14*60,    durationMin:30, category:'leetcode',      fixed:false },
+  // Wednesday Aug 6
+  { id:'e5',  title:'Recruiter call — Meta',        day:6,  startMin:11*60,    durationMin:30, category:'interview',     fixed:true  },
+  { id:'e6',  title:'Gym session',                  day:6,  startMin:17*60+30, durationMin:60, category:'gym',           fixed:true  },
+  // Thursday Aug 7 (today)
+  { id:'e7',  title:'Full LeetCode set',            day:7,  startMin:9*60,     durationMin:60, category:'leetcode',      fixed:false },
+  { id:'e8',  title:'Onsite prep — system design',  day:7,  startMin:14*60,    durationMin:90, category:'system-design', fixed:false },
+  // Friday Aug 8
+  { id:'e9',  title:'Gym session',                  day:8,  startMin:8*60+30,  durationMin:60, category:'gym',           fixed:true  },
+  { id:'e10', title:'Apply to 3 roles',             day:8,  startMin:11*60,    durationMin:45, category:'admin',         fixed:false },
+  // Saturday Aug 9
+  { id:'e11', title:'Add embeddings + pgvector',    day:9,  startMin:10*60,    durationMin:45, category:'llm',           fixed:false },
+  { id:'e12', title:'Daily LeetCode',               day:9,  startMin:11*60,    durationMin:20, category:'leetcode',      fixed:false },
+  { id:'e13', title:'Evening walk · 8k steps',      day:9,  startMin:18*60+30, durationMin:30, category:'gym',           fixed:false },
+  // Sunday Aug 10
+  { id:'e14', title:'Meal prep',                    day:10, startMin:12*60,    durationMin:45, category:'life',          fixed:false },
+  { id:'e15', title:'Week review + next plan',      day:10, startMin:16*60,    durationMin:30, category:'admin',         fixed:false },
 ];
 
 export const BUSY_DAYS = { 2:1,4:2,9:1,11:1,16:2,18:1,23:1,24:2,25:1,26:1,27:2,29:1 };

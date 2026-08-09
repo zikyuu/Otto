@@ -31,14 +31,12 @@ export default function App() {
   const tasks = NOW_TASKS.map(t => ({ ...t, checked: checks[t.k] }));
 
   return (
-    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:'24px 16px' }}>
+    <div style={{ height:'100vh', display:'flex', overflow:'hidden' }}>
       <div style={{
         position: 'relative',
-        width: 'min(1280px,96vw)', height: 'min(862px,93vh)',
-        background: '#FBF8F4', borderRadius: 30, overflow: 'hidden',
+        width: '100%', height: '100%',
+        background: '#FBF8F4',
         display: 'flex',
-        boxShadow: '0 50px 100px -38px rgba(74,54,38,.55)',
-        border: '1px solid #fff',
       }}>
         <Sidebar lens={lens} setLens={setLens} />
 
@@ -94,3 +92,5 @@ export default function App() {
     </div>
   );
 }
+
+

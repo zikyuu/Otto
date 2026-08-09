@@ -1,94 +1,76 @@
 import { useState, useEffect, useRef } from 'react';
 import { CATEGORY_COLORS, DEFAULT_CAT_COLOR } from '../../data/fixtures.js';
 import {
-  PX_PER_MIN, DAY_START, DAY_END, GRID_H, SNAP, HOURS, DOW_NAMES,
-  fmtTime, snapMin, getWeekDates, weekRangeLabel,
+  PX_PER_MIN, DAY_START, DAY_END, GRID_H, HOURS, DOW_NAMES,
+  fmtTime, snapMin, getWeekDates,
 } from './calendarUtils.js';
+import { useDragResize } from './useDragResize.js';
+import EventCreation from './EventCreation.jsx';
+import DeleteButton from '../../components/DeleteButton.jsx';
 
 function cat(ev) { return CATEGORY_COLORS[ev.category] || DEFAULT_CAT_COLOR; }
 
-function hasFixedConflict(events, excludeId, day, startMin, duration) {
-  return events.some(e =>
-    e.id !== excludeId &&
-    e.day === day &&
-    e.fixed &&
-    startMin < e.startMin + e.durationMin &&
-    startMin + duration > e.startMin
+
+// ── DraftGhost ────────────────────────────────────────────────────────────────
+function DraftGhost({ draftBlock, newTaskDraft, onCancel, startDraftResize, startDraftMove }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onPointerDown={e => e.stopPropagation()}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: 'absolute',
+        top: (draftBlock.startMin - DAY_START) * PX_PER_MIN,
+        left: 3, right: 3,
+        height: newTaskDraft.duration_planned * PX_PER_MIN - 3,
+        background: '#F2E6D4', border: '2px dashed #A8703E',
+        borderRadius: 8, overflow: 'visible', zIndex: 10,
+        display: 'flex', alignItems: 'flex-start',
+        padding: '4px 7px',
+      }}
+    >
+      <DeleteButton visible={hovered} onDelete={onCancel} />
+
+      {/* top resize handle */}
+      <div onPointerDown={e => startDraftResize(e, 'top')}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 8, cursor: 'ns-resize', zIndex: 2 }} />
+
+      {/* body — drag to shift the whole block */}
+      <div
+        onPointerDown={e => startDraftMove(e)}
+        style={{
+          position: 'absolute', top: 8, left: 0, right: 0, bottom: 8,
+          cursor: 'grab', display: 'flex', alignItems: 'center',
+          paddingLeft: 7, overflow: 'hidden',
+        }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 700, color: '#A8703E', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>
+          {newTaskDraft.title || 'New task…'}
+        </span>
+      </div>
+
+      {/* bottom resize handle */}
+      <div onPointerDown={e => startDraftResize(e, 'bottom')}
+        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'ns-resize', zIndex: 2 }} />
+    </div>
   );
 }
 
-// Client-side fallback scheduler — used when AI reschedule API is unavailable.
-function firstFitSlot(occupied, preferredStart, duration) {
-  const occ = [...occupied].sort((a, b) => a.s - b.s);
-  let cur = Math.max(DAY_START, preferredStart), changed = true;
-  while (changed) {
-    changed = false;
-    for (const { s, e } of occ) {
-      if (cur < e && cur + duration > s) { cur = e; changed = true; break; }
-    }
-  }
-  if (cur + duration <= DAY_END) return cur;
-  cur = DAY_START; changed = true;
-  while (changed) {
-    changed = false;
-    for (const { s, e } of occ) {
-      if (cur < e && cur + duration > s) { cur = e; changed = true; break; }
-    }
-  }
-  return cur + duration <= DAY_END ? cur : null;
-}
-
-function rescheduleLocal(events, pinnedIds, weekDayNums) {
-  const pinned = events.filter(e => pinnedIds.includes(e.id) || e.fixed);
-  const free   = events.filter(e => !pinnedIds.includes(e.id) && !e.fixed)
-                        .sort((a, b) => a.startMin - b.startMin);
-  const occ = {};
-  weekDayNums.forEach(d => { occ[d] = []; });
-  pinned.forEach(e => { if (occ[e.day] !== undefined) occ[e.day].push({ s: e.startMin, e: e.startMin + e.durationMin }); });
-  const result = [...pinned];
-  for (const ev of free) {
-    const tryDays = [ev.day, ...weekDayNums.filter(d => d !== ev.day)];
-    let placed = false;
-    for (const day of tryDays) {
-      const slot = firstFitSlot(occ[day] || [], ev.startMin, ev.durationMin);
-      if (slot !== null) {
-        occ[day].push({ s: slot, e: slot + ev.durationMin });
-        result.push({ ...ev, day, startMin: slot });
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) result.push(ev);
-  }
-  return result;
-}
-
-function deriveEffortTier(m) {
-  if (m < 30)  return 'low';
-  if (m < 90)  return 'med';
-  if (m < 180) return 'high';
-  return 'deep';
-}
-
-const labelStyle = {
-  fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 12,
-  color: '#8C7A64', letterSpacing: '0.8px', textTransform: 'uppercase',
-  marginBottom: 6, display: 'block',
-};
-const inputStyle = {
-  width: '100%', padding: '10px 12px', marginBottom: 18,
-  borderRadius: 10, border: '1.5px solid #E9DECC',
-  background: '#fff', fontSize: 14, color: '#4A3526',
-  fontFamily: "'Quicksand'", fontWeight: 500,
-  outline: 'none', boxSizing: 'border-box',
-};
 
 // ── EventChip ─────────────────────────────────────────────────────────────────
-function EventChip({ ev, draggingThis, isConflict, onPointerDown }) {
-  const c = cat(ev);
+// noTopTransition: true while the top handle is being dragged, so the CSS
+// spring doesn't chase every pointermove frame and cause flicker.
+function EventChip({ ev, draggingThis, noTopTransition, isConflict, onPointerDown, onResizeStart, onDelete, onToggleLock }) {
+  const [hovered, setHovered]       = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const c        = cat(ev);
+  const settling = !draggingThis && !noTopTransition;
   return (
     <div
-      onPointerDown={onPointerDown}
+      onPointerDown={e => { e.stopPropagation(); if (!ev.fixed && !confirming) onPointerDown(e); }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); }}
       style={{
         position: 'absolute',
         top:    (ev.startMin - DAY_START) * PX_PER_MIN,
@@ -97,38 +79,105 @@ function EventChip({ ev, draggingThis, isConflict, onPointerDown }) {
         background:  isConflict ? '#FFF0EE' : c.bg,
         borderLeft: `3px solid ${isConflict ? '#D44848' : c.accent}`,
         borderRadius: 8, padding: '3px 6px',
-        cursor:    ev.fixed ? 'default' : draggingThis ? 'grabbing' : 'grab',
+        cursor: ev.fixed ? 'default' : draggingThis ? 'grabbing' : 'grab',
         userSelect: 'none',
-        zIndex:    draggingThis ? 1 : 3,
-        opacity:   draggingThis ? 0.15 : 1,
+        zIndex:   draggingThis ? 1 : (hovered || confirming) ? 4 : 3,
+        opacity:  draggingThis ? 0.15 : 1,
         transition: draggingThis
           ? 'opacity .1s ease'
-          : 'top .38s cubic-bezier(0.34,1.2,0.64,1), opacity .15s ease, background .3s ease',
+          : settling
+            ? 'top .38s cubic-bezier(0.34,1.2,0.64,1), opacity .15s ease, background .3s ease'
+            : 'opacity .15s ease, background .3s ease',
         boxShadow: isConflict
           ? `0 0 0 1.5px ${c.accent}55`
           : draggingThis ? 'none'
           : `0 2px 8px -5px ${c.accent}66`,
-        animation:  isConflict ? 'shakeWobble 0.7s ease both' : 'none',
-        overflow:   'hidden',
-        display:    'flex', flexDirection: 'column', justifyContent: 'flex-start',
+        animation: isConflict ? 'shakeWobble 0.7s ease both' : 'none',
+        overflow: 'visible',
+        display: 'flex', flexDirection: 'column', justifyContent: 'flex-start',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 3 }}>
+      {/* Confirmation popup */}
+      {confirming && (
+        <div
+          onPointerDown={e => e.stopPropagation()}
+          style={{
+            position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%',
+            transform: 'translateX(-50%)',
+            background: '#fff', border: '1.5px solid #ECE3D4',
+            borderRadius: 12, padding: '10px 14px',
+            boxShadow: '0 8px 24px -8px rgba(74,54,38,.3)',
+            zIndex: 50, whiteSpace: 'nowrap',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#4A3526' }}>Remove "{ev.title}"?</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onPointerDown={e => { e.stopPropagation(); onDelete(); }}
+              style={{
+                padding: '5px 12px', borderRadius: 999, border: 'none',
+                background: '#D44848', color: '#fff',
+                fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}
+            >Remove</button>
+            <button
+              onPointerDown={e => { e.stopPropagation(); setConfirming(false); setHovered(false); }}
+              style={{
+                padding: '5px 12px', borderRadius: 999,
+                border: '1.5px solid #ECE3D4', background: '#fff',
+                color: '#8C7A64', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Hover delete button — middle-left (only for unlocked events) */}
+      {!ev.fixed && (
+        <DeleteButton visible={hovered && !draggingThis && !confirming} onDelete={() => setConfirming(true)} />
+      )}
+
+      {/* top resize handle (disabled for locked events) */}
+      <div onPointerDown={e => { e.stopPropagation(); if (!ev.fixed) onResizeStart(e, 'top'); }}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 8, cursor: ev.fixed ? 'default' : 'ns-resize', zIndex: 1 }} />
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 3, overflow: 'hidden' }}>
         <div style={{
           fontSize: 10, fontWeight: 800,
           color: isConflict ? '#9E2020' : c.text,
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
-          lineHeight: 1.2,
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, lineHeight: 1.2,
         }}>
           {ev.title}
         </div>
-        {ev.fixed && <span style={{ fontSize: 9, flexShrink: 0, opacity: .55, lineHeight: 1 }}>🔒</span>}
+        {/* Lock / unlock button — always visible on locked events, visible on hover for unlocked */}
+        {(ev.fixed || hovered) && (
+          <button
+            onPointerDown={e => { e.stopPropagation(); onToggleLock(); }}
+            title={ev.fixed ? 'Unlock event' : 'Lock event'}
+            style={{
+              flexShrink: 0, background: 'none', border: 'none', padding: 0,
+              cursor: 'pointer', lineHeight: 1, fontSize: 9,
+              opacity: ev.fixed ? 0.7 : 0.4,
+              transition: 'opacity .15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = '1'; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = ev.fixed ? '0.7' : '0.4'; }}
+          >
+            {ev.fixed ? '🔒' : '🔓'}
+          </button>
+        )}
       </div>
+
       {ev.durationMin >= 25 && (
         <div style={{ fontSize: 9, color: isConflict ? '#9E2020' : c.text, opacity: .65, marginTop: 2, lineHeight: 1 }}>
           {fmtTime(ev.startMin)}–{fmtTime(ev.startMin + ev.durationMin)}
         </div>
       )}
+
+      {/* bottom resize handle */}
+      <div onPointerDown={e => { e.stopPropagation(); onResizeStart(e, 'bottom'); }}
+        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 8, cursor: 'ns-resize', zIndex: 1 }} />
     </div>
   );
 }
@@ -137,34 +186,91 @@ function EventChip({ ev, draggingThis, isConflict, onPointerDown }) {
 export default function WeekView({ weekOffset, sel, setSel, events, setEvents }) {
   const gridRef   = useRef(null);
   const scrollRef = useRef(null);
-  const dragRef   = useRef(null);
-  const posRef    = useRef(null);
   const eventsRef = useRef(events);
   useEffect(() => { eventsRef.current = events; }, [events]);
 
-  const [dragPos,   setDragPos]   = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiNote,    setAiNote]    = useState('');
   const [conflicts, setConflicts] = useState(new Set());
   const [undoStack, setUndoStack] = useState([]);
 
-  const [draftBlock,    setDraftBlock]    = useState(null);
-  const [newTaskDraft,  setNewTaskDraft]  = useState({
+  const [draftBlock,   setDraftBlock]   = useState(null);
+  const [newTaskDraft, setNewTaskDraft] = useState({
     title: '', duration_planned: 60, category: 'deep_work', effort_tier: 'med',
     deadline_iso: '', non_negotiable: false,
   });
 
-  // Derive real dates for this week
   const weekDates   = getWeekDates(weekOffset);
   const weekDayNums = weekDates.map(d => d.getDate());
-  // Map dayNum → day-of-week label
   const dayLabel    = Object.fromEntries(weekDates.map((d, i) => [d.getDate(), DOW_NAMES[i]]));
-  // Today's date number for highlight
   const todayNum    = new Date().getDate();
 
+  async function callScheduler(postDragEvents, pinnedId, snapshotBeforeDrag) {
+    setAiLoading(true); setAiNote('');
+    try {
+      const res = await fetch('/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: postDragEvents, pinned_ids: [pinnedId] }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setEvents(data.events);
+      setConflicts(new Set(data.conflicts || []));
+    } catch (err) {
+      console.warn('[scheduler] failed, reverting drag:', err.message);
+      setEvents(snapshotBeforeDrag);
+      setAiNote('⚠ Scheduler unavailable — drag reverted. (' + err.message + ')');
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  const {
+    dragRef, dragPos, resizingTopId, isDraftMoving,
+    startDrag, startResize, startDraftResize, startDraftMove,
+    handlePointerMove, handlePointerUp, handlePointerCancel,
+  } = useDragResize({
+    gridRef, scrollRef, weekDayNums,
+    eventsRef, setEvents,
+    draftBlock, setDraftBlock,
+    newTaskDraft, setNewTaskDraft,
+    setUndoStack, callScheduler,
+  });
+
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+
   function cancelDraft() {
+    setConfirmingCancel(false);
     setDraftBlock(null);
     setNewTaskDraft({ title: '', duration_planned: 60, category: 'deep_work', effort_tier: 'med', deadline_iso: '', non_negotiable: false });
+  }
+
+  function requestCancel() {
+    if (newTaskDraft.title.trim()) {
+      setConfirmingCancel(true);
+    } else {
+      cancelDraft();
+    }
+  }
+
+  // Click-outside: anything that bubbles past EventCreation's stopPropagation → requestCancel
+  useEffect(() => {
+    if (!draftBlock || isDraftMoving) return;
+    document.addEventListener('pointerdown', requestCancel);
+    return () => document.removeEventListener('pointerdown', requestCancel);
+  }, [draftBlock, isDraftMoving, newTaskDraft.title]);
+
+  function deleteEvent(id) {
+    setEvents(prev => prev.filter(e => e.id !== id));
+    setConflicts(prev => { const n = new Set(prev); n.delete(id); return n; });
+  }
+
+  function toggleLock(id) {
+    setEvents(prev => prev.map(e => e.id === id ? { ...e, fixed: !e.fixed } : e));
   }
 
   function commitDraft() {
@@ -181,102 +287,6 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
     cancelDraft();
   }
 
-  useEffect(() => {
-    if (conflicts.size === 0) return;
-    const t = setTimeout(() => setConflicts(new Set()), 1400);
-    return () => clearTimeout(t);
-  }, [conflicts]);
-
-  async function callAiReschedule(postDragEvents, pinnedId) {
-    setAiLoading(true); setAiNote('');
-    try {
-      const res = await fetch('/api/ai/reschedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events: postDragEvents, pinned_ids: [pinnedId] }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      if (!data.events || data.events.length !== postDragEvents.length)
-        throw new Error(`AI returned ${data.events?.length ?? 0} events, expected ${postDragEvents.length}`);
-      setEvents(data.events);
-      setConflicts(new Set(data.conflicts || []));
-      setAiNote('✦ ' + (data.explanation || 'Schedule optimised by AI.'));
-    } catch (err) {
-      console.warn('[AI reschedule] failed, using local fallback:', err.message);
-      setEvents(rescheduleLocal(postDragEvents, [pinnedId], weekDayNums));
-      setAiNote('⚠ AI unavailable — used basic conflict resolution. (' + err.message + ')');
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    let rafId;
-    function onMove(e) {
-      if (!dragRef.current || !gridRef.current) return;
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const dr  = dragRef.current;
-        if (!dr) return;
-        const rect      = gridRef.current.getBoundingClientRect();
-        const scrollTop = scrollRef.current?.scrollTop || 0;
-        const colW      = rect.width / 7;
-        const colIdx    = Math.max(0, Math.min(6, Math.floor((e.clientX - rect.left) / colW)));
-        const day       = weekDayNums[colIdx];
-        const relY      = e.clientY - rect.top + scrollTop - dr.grabOffsetY;
-        const clamped   = Math.max(DAY_START, Math.min(DAY_END - dr.duration, snapMin(DAY_START + relY / PX_PER_MIN)));
-        const blocked   = hasFixedConflict(eventsRef.current, dr.id, day, clamped, dr.duration);
-        const prev      = posRef.current;
-        if (!prev || prev.day !== day || prev.startMin !== clamped || prev.blocked !== blocked) {
-          posRef.current = { day, startMin: clamped, blocked };
-          setDragPos({ day, startMin: clamped, blocked });
-        }
-      });
-    }
-    function onUp() {
-      cancelAnimationFrame(rafId);
-      const dr  = dragRef.current;
-      const pos = posRef.current;
-      if (dr && pos) {
-        if (pos.blocked) {
-          dragRef.current = null; posRef.current = null; setDragPos(null);
-          return;
-        }
-        if (pos.day !== dr.origDay || pos.startMin !== dr.origStart) {
-          setUndoStack(prev => [...prev.slice(-4), { events: [...eventsRef.current], dragId: dr.id }]);
-          const postDrag = eventsRef.current.map(x =>
-            x.id === dr.id ? { ...x, day: pos.day, startMin: pos.startMin } : x
-          );
-          callAiReschedule(postDrag, dr.id);
-        }
-      }
-      dragRef.current = null; posRef.current = null; setDragPos(null);
-    }
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup',   onUp);
-    return () => {
-      cancelAnimationFrame(rafId);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup',   onUp);
-    };
-  }, [weekDayNums.join(',')]); // re-bind when week changes
-
-  function startDrag(e, ev) {
-    if (ev.fixed) return;
-    e.preventDefault();
-    if (!gridRef.current) return;
-    const rect        = gridRef.current.getBoundingClientRect();
-    const scrollTop   = scrollRef.current?.scrollTop || 0;
-    const grabOffsetY = (e.clientY - rect.top + scrollTop) - (ev.startMin - DAY_START) * PX_PER_MIN;
-    dragRef.current   = { id: ev.id, grabOffsetY, duration: ev.durationMin, origDay: ev.day, origStart: ev.startMin };
-    posRef.current    = { day: ev.day, startMin: ev.startMin };
-    setDragPos({ day: ev.day, startMin: ev.startMin });
-  }
-
   function handleUndo() {
     if (undoStack.length === 0) return;
     const top = undoStack[undoStack.length - 1];
@@ -285,6 +295,12 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
     setAiNote('');
     if (top.dragId) setConflicts(new Set([top.dragId]));
   }
+
+  useEffect(() => {
+    if (conflicts.size === 0) return;
+    const t = setTimeout(() => setConflicts(new Set()), 1400);
+    return () => clearTimeout(t);
+  }, [conflicts]);
 
   const byDay = {};
   weekDayNums.forEach(d => { byDay[d] = []; });
@@ -308,7 +324,7 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
         </div>
       )}
 
-      {/* Undo + AI spinner row */}
+      {/* Undo + AI spinner */}
       {(undoStack.length > 0 || aiLoading) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           {undoStack.length > 0 && !aiLoading && (
@@ -376,7 +392,14 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
             </div>
 
             {/* Grid */}
-            <div ref={gridRef} style={{ flex: 1, position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', height: GRID_H }}>
+            <div
+              ref={gridRef}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+              style={{ flex: 1, position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', height: GRID_H, touchAction: 'none' }}
+            >
+              {/* Hour lines */}
               {HOURS.map(h => (
                 <div key={h} style={{ position: 'absolute', top: (h * 60 - DAY_START) * PX_PER_MIN, left: 0, right: 0, height: 1, background: '#ECE3D4', zIndex: 0 }} />
               ))}
@@ -387,8 +410,9 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
               {weekDayNums.map(day => {
                 const isToday = day === todayNum && weekOffset === 0;
                 return (
-                  <div key={day} onClick={e => {
-                    if (dragRef.current) return;
+                  <div key={day} onPointerDown={e => {
+                    if (dragRef.current || draftBlock) return;
+                    e.stopPropagation(); // prevent document listener from cancelling the new draft
                     const rect      = gridRef.current.getBoundingClientRect();
                     const scrollTop = scrollRef.current?.scrollTop || 0;
                     const relY      = e.clientY - rect.top + scrollTop;
@@ -397,9 +421,9 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
                   }} style={{
                     height: GRID_H, borderLeft: '1px solid #ECE3D4', position: 'relative',
                     background: dragPos?.day === day ? 'rgba(168,112,62,.04)' : isToday ? 'rgba(245,238,225,.35)' : 'transparent',
-                    transition: 'background .15s ease',
-                    cursor: 'crosshair',
+                    transition: 'background .15s ease', cursor: 'crosshair',
                   }}>
+                    {/* Drop-position indicator line */}
                     {dragPos?.day === day && (
                       <div style={{
                         position: 'absolute',
@@ -409,36 +433,36 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
                         opacity: dragPos.blocked ? .7 : .4,
                       }} />
                     )}
+
                     {byDay[day].map(ev => (
                       <EventChip
                         key={ev.id}
                         ev={ev}
                         draggingThis={dragRef.current?.id === ev.id}
+                        noTopTransition={resizingTopId === ev.id}
                         isConflict={conflicts.has(ev.id)}
                         onPointerDown={e => { e.stopPropagation(); startDrag(e, ev); }}
+                        onResizeStart={(e, edge) => startResize(e, ev, edge)}
+                        onDelete={() => deleteEvent(ev.id)}
+                        onToggleLock={() => toggleLock(ev.id)}
                       />
                     ))}
+
+                    {/* Draft ghost block */}
                     {draftBlock?.day === day && (
-                      <div style={{
-                        position: 'absolute',
-                        top: (draftBlock.startMin - DAY_START) * PX_PER_MIN,
-                        left: 3, right: 3,
-                        height: newTaskDraft.duration_planned * PX_PER_MIN - 3,
-                        background: '#F2E6D4', border: '2px dashed #A8703E',
-                        borderRadius: 8, pointerEvents: 'none',
-                        display: 'flex', alignItems: 'flex-start',
-                        padding: '4px 7px', overflow: 'hidden',
-                      }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#A8703E', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {newTaskDraft.title || 'New task…'}
-                        </span>
-                      </div>
+                      <DraftGhost
+                        draftBlock={draftBlock}
+                        newTaskDraft={newTaskDraft}
+                        onCancel={cancelDraft}
+                        startDraftResize={startDraftResize}
+                        startDraftMove={startDraftMove}
+                      />
                     )}
                   </div>
                 );
               })}
 
-              {/* Drag ghost */}
+              {/* Drag ghost — follows cursor during event drag */}
               {dragPos && dragRef.current && (() => {
                 const dr = dragRef.current;
                 const ev = events.find(x => x.id === dr.id);
@@ -483,92 +507,21 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
         </div>
       </div>
 
-      {/* Slide-in task creation panel */}
-      {draftBlock && (
-        <>
-          <div onClick={cancelDraft} style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(74,53,38,.18)' }} />
-          <div style={{
-            position: 'fixed', top: 0, right: 0, bottom: 0,
-            width: 360, zIndex: 50,
-            background: '#FBF8F4', borderLeft: '1px solid #E9DECC',
-            boxShadow: '-20px 0 60px -20px rgba(74,53,38,.25)',
-            display: 'flex', flexDirection: 'column',
-            animation: 'slideInRight .22s ease',
-            padding: '32px 28px', overflowY: 'auto',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-              <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 20, color: '#4A3526' }}>New Task</div>
-              <div onClick={cancelDraft} style={{ cursor: 'pointer', fontSize: 20, color: '#AD9B84', lineHeight: 1 }}>×</div>
-            </div>
-
-            <label style={labelStyle}>Task name</label>
-            <input autoFocus type="text" value={newTaskDraft.title}
-              onChange={e => setNewTaskDraft(d => ({ ...d, title: e.target.value }))}
-              onKeyDown={e => { if (e.key === 'Enter') commitDraft(); if (e.key === 'Escape') cancelDraft(); }}
-              placeholder="What do you need to do?" style={inputStyle}
-            />
-
-            <label style={labelStyle}>Duration (minutes)</label>
-            <input type="number" min={5} max={480} value={newTaskDraft.duration_planned}
-              onChange={e => {
-                const m = Number(e.target.value);
-                setNewTaskDraft(d => ({ ...d, duration_planned: m, effort_tier: deriveEffortTier(m) }));
-              }} style={inputStyle}
-            />
-            <div style={{ fontSize: 11, color: '#AD9B84', marginTop: -10, marginBottom: 18 }}>
-              Effort: <strong style={{ color: '#8C7A64' }}>{newTaskDraft.effort_tier}</strong>
-            </div>
-
-            <label style={labelStyle}>Category</label>
-            <select value={newTaskDraft.category}
-              onChange={e => setNewTaskDraft(d => ({ ...d, category: e.target.value }))}
-              style={inputStyle}
-            >
-              <option value="deep_work">Deep Work</option>
-              <option value="admin">Admin</option>
-              <option value="creative">Creative</option>
-              <option value="physical">Physical</option>
-              <option value="social">Social</option>
-            </select>
-
-            <label style={labelStyle}>Deadline (optional)</label>
-            <input type="date" value={newTaskDraft.deadline_iso}
-              onChange={e => setNewTaskDraft(d => ({ ...d, deadline_iso: e.target.value }))}
-              style={inputStyle}
-            />
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
-              <input type="checkbox" id="nn" checked={newTaskDraft.non_negotiable}
-                onChange={e => setNewTaskDraft(d => ({ ...d, non_negotiable: e.target.checked }))}
-                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#A8703E' }}
-              />
-              <label htmlFor="nn" style={{ fontFamily: "'Quicksand'", fontWeight: 600, fontSize: 14, color: '#4A3526', cursor: 'pointer' }}>
-                Non-negotiable
-              </label>
-            </div>
-
-            <div style={{ flex: 1 }} />
-            <div style={{ fontSize: 12, color: '#AD9B84', marginBottom: 14, textAlign: 'center' }}>
-              {dayLabel[draftBlock.day]}, {fmtTime(draftBlock.startMin)} — {fmtTime(draftBlock.startMin + newTaskDraft.duration_planned)}
-            </div>
-
-            <button onClick={commitDraft} disabled={!newTaskDraft.title.trim()} style={{
-              width: '100%', padding: '14px', borderRadius: 14, marginBottom: 10,
-              background: newTaskDraft.title.trim() ? 'linear-gradient(135deg,#C0894F,#A8703E)' : '#E9DECC',
-              color: newTaskDraft.title.trim() ? '#fff' : '#AD9B84',
-              fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 15,
-              border: 'none', cursor: newTaskDraft.title.trim() ? 'pointer' : 'default',
-              boxShadow: newTaskDraft.title.trim() ? '0 8px 20px -8px rgba(150,108,64,.5)' : 'none',
-              transition: 'all .2s ease',
-            }}>Add to Calendar</button>
-            <button onClick={cancelDraft} style={{
-              width: '100%', padding: '11px', borderRadius: 14,
-              background: 'transparent', color: '#AD9B84',
-              fontFamily: "'Quicksand'", fontWeight: 600, fontSize: 14,
-              border: '1.5px solid #E9DECC', cursor: 'pointer',
-            }}>Cancel</button>
-          </div>
-        </>
+      {draftBlock && !isDraftMoving && (
+        <EventCreation
+          draftBlock={draftBlock}
+          newTaskDraft={newTaskDraft}
+          setNewTaskDraft={setNewTaskDraft}
+          gridRef={gridRef}
+          scrollRef={scrollRef}
+          weekDayNums={weekDayNums}
+          onCommit={commitDraft}
+          onCancel={cancelDraft}
+          onRequestCancel={requestCancel}
+          confirmingCancel={confirmingCancel}
+          onConfirmCancel={cancelDraft}
+          onDismissConfirm={() => setConfirmingCancel(false)}
+        />
       )}
     </>
   );

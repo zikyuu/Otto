@@ -146,6 +146,39 @@ def _required_minutes(task: Task, profile: Profile, downscope: bool) -> int:
     return int(base * velocity) + ramp_up
 
 
+def _days_until(iso_date: str | None, today_day_offset: int) -> float | None:
+    """Rough days remaining: today_day_offset is 0-based index within the planning week."""
+    # Until Supabase is wired with real dates, treat deadline_iso as a sentinel
+    # and fall back to the integer offset stored (days from start of week).
+    # Real ISO parsing will replace this stub.
+    return None  # TODO: wire real ISO diff once DB is connected
+
+
+def _priority_score(task: Task, deadline_day: int) -> float:
+    """Priority score for sort order.
+
+    Base = value density (importance / minutes).
+    Hard deadline: if set, apply a large urgency multiplier that grows as deadline nears.
+    Best-done-by: if set (and no hard deadline), apply a smaller soft-urgency boost.
+    Hard deadline always dominates best-done-by.
+    """
+    base = task.importance / max(task.est_minutes, 1)
+
+    if task.deadline_iso and task.hard_deadline:
+        # Hard deadline — strong urgency multiplier (3× at week boundary)
+        return base * 3.0
+
+    if task.best_done_by_iso:
+        # Soft preferred date — moderate boost (1.5×) without overriding hard deadlines
+        return base * 1.5
+
+    if task.deadline_iso and not task.hard_deadline:
+        # Deadline marked as soft (user unchecked "hard deadline") — treat like best-done-by
+        return base * 1.5
+
+    return base
+
+
 def _has_tight_deadline(task: Task, last_day: int, profile: Profile) -> bool:
     """True if there is not enough physically available time to complete this task
     before its deadline, even after displacing everything else.
@@ -156,7 +189,8 @@ def _has_tight_deadline(task: Task, last_day: int, profile: Profile) -> bool:
 
     Also respects profile.day_end_min so all-nighter mode widens the window:
     extending to 4am adds ~4h, shrinking days_needed and pushing the warning later."""
-    if not task.deadline_iso:
+    # Only hard deadlines trigger overpack mode; soft/best-done-by never override slot limits
+    if not task.deadline_iso or not task.hard_deadline:
         return False
 
     required      = _required_minutes(task, profile, downscope=False)
@@ -232,9 +266,7 @@ def schedule(tasks: list[Task], profile: Profile, deadline_day: int,
 
     cap = int(profile.free_hours_per_day * profile.planning_bias * 60)
     ordered = _topo_order(tasks)
-    ordered.sort(key=lambda t: t.importance / max(t.est_minutes, 1), reverse=True)
-    # important/minutes -> value density: importance per minute (high important short tasks score the highest for max productivity
-    # reverse = True -> allows highest density to be ranked first 
+    ordered.sort(key=lambda t: _priority_score(t, deadline_day), reverse=True)
 
     satisfied: set[str] = set()
     placed: set[str] = set()

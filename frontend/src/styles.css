@@ -31,8 +31,9 @@
 body {
   margin: 0;
   font-family: 'Nunito', system-ui, sans-serif;
-  background: radial-gradient(120% 80% at 50% -5%, #F3ECDD, #E6DAC8);
-  min-height: 100vh;
+  background: #FBF8F4;
+  height: 100vh;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -54,6 +55,10 @@ body {
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
 }
 @keyframes sheetUp {
   from { transform: translateY(28px) scale(.98); opacity: 0; }

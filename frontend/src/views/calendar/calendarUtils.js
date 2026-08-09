@@ -1,3 +1,6 @@
+//note to myself for whats here lol
+// pure math, no react stuff
+
 export const PX_PER_MIN = 1.4;
 export const DAY_START  = 8  * 60;
 export const DAY_END    = 23 * 60;

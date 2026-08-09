@@ -262,7 +262,9 @@ class Task:
     # scheduling constraints
     prereq_ids: list[str] = field(default_factory=list)  # task IDs that must be placed first
     link: EventAnchor | None = None                       # time-anchor to a CalendarEvent
-    deadline_iso: str | None = None                       # ISO date — hard deadline
+    deadline_iso: str | None = None                       # ISO date — hard deadline (scheduler treats as immovable constraint)
+    hard_deadline: bool = True                            # False = soft/best-effort; True = must finish by deadline_iso
+    best_done_by_iso: str | None = None                   # ISO date — soft preferred completion date (raises urgency score but never blocks)
     fixed: bool = False                                   # True = immovable by scheduler
 
     # content
