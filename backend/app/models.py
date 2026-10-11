@@ -189,12 +189,44 @@ class Profile:
             "free_hours_per_day": self.free_hours_per_day,
             "time_blocks": [asdict(b) for b in self.time_blocks],
             "completion_rate": self.completion_rate,
-            "avg_velocity": self.avg_velocity,
+            "avg_velocity": dict(self.avg_velocity),
+            "ramp_up_min": dict(self.ramp_up_min),
+            "day_start_min": self.day_start_min,
+            "day_end_min": self.day_end_min,
             "peak_window": list(self.peak_window),
             "post_meal_slump_min": self.post_meal_slump_min,
             "planning_bias": self.planning_bias,
-            "stated_rules": self.stated_rules,
+            "stated_rules": list(self.stated_rules),
+            "energy_logs": [asdict(e) for e in self.energy_logs],
+            "reflections": [{**asdict(r), "choice": r.choice.value} for r in self.reflections],
+            "off_track_logs": [asdict(o) for o in self.off_track_logs],
         }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Profile":
+        """Inverse of to_dict. Missing keys fall back to cold-start defaults so a
+        partial payload (e.g. just skills) still yields a usable Profile."""
+        p = cls()
+        p.skills = [Skill(**s) for s in d.get("skills", [])]
+        p.free_hours_per_day = d.get("free_hours_per_day", p.free_hours_per_day)
+        p.time_blocks = [TimeBlock(**b) for b in d.get("time_blocks", [])]
+        p.completion_rate = d.get("completion_rate", p.completion_rate)
+        p.avg_velocity = {**p.avg_velocity, **d.get("avg_velocity", {})}
+        p.ramp_up_min = {**p.ramp_up_min, **d.get("ramp_up_min", {})}
+        p.day_start_min = d.get("day_start_min", p.day_start_min)
+        p.day_end_min = d.get("day_end_min", p.day_end_min)
+        pw = d.get("peak_window", p.peak_window)
+        p.peak_window = (int(pw[0]), int(pw[1]))
+        p.post_meal_slump_min = d.get("post_meal_slump_min", p.post_meal_slump_min)
+        p.planning_bias = d.get("planning_bias", p.planning_bias)
+        p.stated_rules = list(d.get("stated_rules", []))
+        p.energy_logs = [EnergyLog(**e) for e in d.get("energy_logs", [])]
+        p.reflections = [
+            TaskReflection(**{**r, "choice": ReflectionChoice(r["choice"])})
+            for r in d.get("reflections", [])
+        ]
+        p.off_track_logs = [OffTrackLog(**o) for o in d.get("off_track_logs", [])]
+        return p
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +305,10 @@ class Task:
     completion_percentage: float = 0.0 # 0..1, used for progress bar and learning signals
 
     non_negotiable: bool = False  # True = user has marked this task as non-negotiable, scheduler will not displace it
+    # soft placement hint — scheduler tries this day/time first (nearest-fit) before scanning the week.
+    # used when re-placing a displaced calendar event so it lands near where it was, not on Monday.
+    prefer_day: int | None = None
+    prefer_start_min: int | None = None
     user_rank: int | None = None  # user-specified rank for this task, used in priority windows
     # state
     status: Status = Status.TODO

@@ -1,16 +1,16 @@
 """Swappable adapters — the "integrations are next" story, kept honest.
 
-ScheduleSource -> Wall[] :  ManualSource (works) | GoogleCalendarSource (stub)
+ScheduleSource -> TimeBlock[] :  ManualSource (works) | GoogleCalendarSource (stub)
 JobSource      -> Goal   :  PasteJDSource (works) | ExaJobSource (stub)
 
-The engine reads only Wall[] and Goal. It never knows which adapter produced
+The engine reads only TimeBlock[] and Goal. It never knows which adapter produced
 them, so adding Calendar or Exa tomorrow is a drop-in, not a rewrite.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from app.models import Goal, Wall
+from app.models import Goal, TimeBlock
 from app.llm.extract import parse_jd
 
 
@@ -18,23 +18,23 @@ from app.llm.extract import parse_jd
 
 class ScheduleSource(ABC):
     @abstractmethod
-    def walls(self) -> list[Wall]: ...
+    def time_blocks(self) -> list[TimeBlock]: ...
 
 
 class ManualSource(ScheduleSource):
-    """Walls the user typed into our own UI. The demo backbone."""
-    def __init__(self, raw_walls: list[dict]):
-        self._raw = raw_walls
+    """Fixed blocks the user typed into our own UI. The demo backbone."""
+    def __init__(self, raw_blocks: list[dict]):
+        self._raw = raw_blocks
 
-    def walls(self) -> list[Wall]:
-        return [Wall(day=w["day"], start_min=w["start_min"],
+    def time_blocks(self) -> list[TimeBlock]:
+        return [TimeBlock(day=w["day"], start_min=w["start_min"],
                      end_min=w["end_min"], label=w.get("label", "")) for w in self._raw]
 
 
 class GoogleCalendarSource(ScheduleSource):
-    """STRETCH (read-only). Day-two: OAuth, pull busy-blocks, map to Wall[].
+    """STRETCH (read-only). Day-two: OAuth, pull busy-blocks, map to TimeBlock[].
     Lands here with zero downstream change. Not wired tonight."""
-    def walls(self) -> list[Wall]:
+    def time_blocks(self) -> list[TimeBlock]:
         raise NotImplementedError("Google Calendar adapter — stretch goal.")
 
 

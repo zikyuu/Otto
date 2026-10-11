@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id  TEXT,
     free_hours_per_day FLOAT NOT NULL DEFAULT 3.0,
-    velocity    FLOAT NOT NULL DEFAULT 0.8,
+    completion_rate FLOAT NOT NULL DEFAULT 0.8,
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS profiles_session_id_idx ON profiles (session_id);
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS skills (
     proficiency INT  NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS walls (
+CREATE TABLE IF NOT EXISTS time_blocks (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     profile_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     day         INT  NOT NULL,
@@ -80,11 +80,11 @@ CREATE TABLE IF NOT EXISTS blocks (
     lite      BOOLEAN DEFAULT FALSE
 );
 
-CREATE TABLE IF NOT EXISTS completion_events (
+CREATE TABLE IF NOT EXISTS task_completions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id         TEXT NOT NULL,
     planned_minutes INT  NOT NULL,
     done            BOOLEAN NOT NULL,
     ts              TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS completion_events_task_id_idx ON completion_events (task_id);
+CREATE INDEX IF NOT EXISTS task_completions_task_id_idx ON task_completions (task_id);

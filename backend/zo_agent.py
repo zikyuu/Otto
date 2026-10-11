@@ -273,8 +273,8 @@ def run_demo():
     demo = fetch_demo()
     profile = parse_resume(demo["resume_text"]).to_dict()
     goal = parse_jd(demo["demo_jd"]).to_dict()
-    profile["velocity"] = 0.4
-    profile["walls"] = demo["walls"]
+    profile["completion_rate"] = 0.4
+    profile["time_blocks"] = demo["time_blocks"]
     return run(profile, [goal], deadline_day=4)
 
 
@@ -430,8 +430,8 @@ def poll_demo():
     demo = fetch_demo()
     profile = parse_resume(demo["resume_text"]).to_dict()
     goal = parse_jd(demo["demo_jd"]).to_dict()
-    profile["velocity"] = 0.4
-    profile["walls"] = demo["walls"]
+    profile["completion_rate"] = 0.4
+    profile["time_blocks"] = demo["time_blocks"]
     poll(profile, [goal], deadline_day=4)
 
 

@@ -96,7 +96,7 @@ def derive_tasks(goal: Goal, profile: Profile, urgency: float = 1.0) -> list[Tas
             skill_served=skill,
             goal_id=goal.id,
             importance=goal.fit * urgency,
-            full_minutes=full,
+            duration_planned=full,
             lite_minutes=lite,
             prereq_ids=[],  # wired below once all ids exist
         ))

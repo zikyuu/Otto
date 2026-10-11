@@ -1,18 +1,18 @@
 """Engine tests — prove the moat works before building around it.
 Run: cd backend && python -m pytest tests/ -v   (or just `python tests/test_engine.py`)
 """
-from app.models import Goal, Profile, Skill, Wall
+from app.models import Goal, Profile, Skill, TimeBlock
 from app.engine.gaps import derive_tasks
 from app.engine.scheduler import schedule
 from app.engine.feasibility import assess
 
 
-def _profile(free_hours=3.0, velocity=0.8):
+def _profile(free_hours=3.0, completion_rate=0.8):
     return Profile(
         skills=[Skill("py", "python", 3)],
         free_hours_per_day=free_hours,
-        walls=[Wall(day=0, start_min=540, end_min=720, label="class")],  # Mon 9-12
-        velocity=velocity,
+        time_blocks=[TimeBlock(day=0, start_min=540, end_min=720, label="class")],  # Mon 9-12
+        completion_rate=completion_rate,
     )
 
 
@@ -44,18 +44,18 @@ def test_prereq_ordering():
     print("PASS: prereqs scheduled before dependents")
 
 
-def test_walls_never_overlapped():
+def test_time_blocks_never_overlapped():
     tasks = derive_tasks(_goal(), _profile())
     plan = schedule(tasks, _profile(), deadline_day=6)
     for b in plan.blocks:
-        if b.day == 0:  # Monday has a 9-12 class wall
+        if b.day == 0:  # Monday has a 9-12 class block
             assert b.end_min <= 540 or b.start_min >= 720
-    print("PASS: scheduler never overlaps walls")
+    print("PASS: scheduler never overlaps time blocks")
 
 
 def test_feasibility_forces_tradeoff_when_impossible():
     # almost no free time + low velocity + tight deadline => infeasible
-    p = _profile(free_hours=0.5, velocity=0.5)
+    p = _profile(free_hours=0.5, completion_rate=0.5)
     g1 = _goal()
     g2 = Goal(id="job2", title="ML Intern",
               required_skills=["python", "apis", "portfolio project"],
@@ -69,7 +69,7 @@ def test_feasibility_forces_tradeoff_when_impossible():
 
 
 def test_feasible_plan_has_no_tradeoff():
-    p = _profile(free_hours=4.0, velocity=0.95)
+    p = _profile(free_hours=4.0, completion_rate=0.95)
     g = _goal()
     tasks = derive_tasks(g, p)
     plan = assess(tasks, p, [g], deadline_day=6)
@@ -80,7 +80,7 @@ def test_feasible_plan_has_no_tradeoff():
 if __name__ == "__main__":
     test_gap_derivation_skips_known_skills()
     test_prereq_ordering()
-    test_walls_never_overlapped()
+    test_time_blocks_never_overlapped()
     test_feasibility_forces_tradeoff_when_impossible()
     test_feasible_plan_has_no_tradeoff()
     print("\nAll engine tests passed.")

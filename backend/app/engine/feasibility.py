@@ -12,13 +12,13 @@ from app.models import Plan, Profile, Task, TimeBlock as Wall
 
 
 def required_minutes(tasks: list[Task], downscope: bool = False) -> int:
-    return sum(t.lite_minutes if downscope else t.full_minutes for t in tasks)
+    return sum((t.lite_minutes or t.full_minutes) if downscope else t.full_minutes for t in tasks)
 
 
 def effective_capacity(profile: Profile, deadline_day: int) -> int:
     """Nominal free time up to the deadline, discounted by real velocity."""
     nominal = profile.free_hours_per_day * 60 * (deadline_day + 1)
-    return int(nominal * profile.velocity)
+    return int(nominal * profile.completion_rate)
 
 
 def assess(tasks: list[Task], profile: Profile, goals: list, deadline_day: int) -> Plan:
@@ -42,10 +42,11 @@ def assess(tasks: list[Task], profile: Profile, goals: list, deadline_day: int) 
     # group remaining work by goal
     per_goal: dict[str, int] = {}
     for t in tasks:
-        per_goal[t.goal_id] = per_goal.get(t.goal_id, 0) + t.lite_minutes
+        gid = t.goal_id or "manual"
+        per_goal[gid] = per_goal.get(gid, 0) + (t.lite_minutes or t.full_minutes)
 
     ranked = sorted(per_goal.items(),
-                    key=lambda kv: goals_by_id.get(kv[0]).fit if kv[0] in goals_by_id else 0,
+                    key=lambda kv: goals_by_id[kv[0]].fit if kv[0] in goals_by_id else 0,
                     reverse=True)
 
     options = [

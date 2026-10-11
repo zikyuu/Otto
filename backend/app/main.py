@@ -3,11 +3,15 @@ LLM endpoints are the ears/mouth only.
 
   POST /api/profile    resume_text        -> Profile
   POST /api/goal       jd_text            -> Goal
-  POST /api/plan       profile+goals+walls-> Plan (blocks, at_risk, tradeoff)
+  POST /api/plan       profile+goals      -> Plan (blocks, at_risk, tradeoff)
   POST /api/reshuffle  plan+completed+missed -> Plan + narration
+  POST /api/schedule   calendar events + pinned ids -> re-placed events (engine, NO LLM)
+  POST /api/learning/reflection | /energy   learning signals -> updated profile
+  GET  /api/learning   -> what Otto has learned about the user so far
   POST /api/chat       plan+message       -> narration (+ maybe re-plan)
+  POST /api/ai/review-goals  weekly LLM check that long-term goals are on track
   GET  /api/health
-  GET  /api/demo       -> the seeded demo payload (resume, jd, walls)
+  GET  /api/demo       -> the seeded demo payload (resume, jd, time_blocks)
 """
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ from pathlib import Path
 
 import io
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,7 +31,14 @@ from app.engine.gaps import derive_tasks
 from app.engine.feasibility import assess
 from app.engine.scheduler import schedule
 from app.llm.extract import parse_resume, parse_jd, narrate, direction_review
-from app.models import Goal, Profile, Skill, Status, Task, TimeBlock as Wall
+from datetime import date, datetime
+
+from pydantic import ConfigDict, Field
+
+from app import store
+from app.engine.calendar_bridge import reschedule_events, to_category
+from app.engine.learning import add_energy_log, apply_all_signals
+from app.models import EnergyLog, Goal, Profile, ReflectionChoice, Status, Task, TaskReflection
 
 DEMO = json.loads((Path(__file__).parent / "demo_data" / "demo.json").read_text())
 
@@ -66,12 +77,10 @@ class ChatBody(BaseModel):
 # ---- helpers --------------------------------------------------------------
 
 def _profile_from(d: dict) -> Profile:
-    return Profile(
-        skills=[Skill(**s) for s in d.get("skills", [])],
-        free_hours_per_day=d.get("free_hours_per_day", 3.0),
-        walls=[Wall(**w) for w in d.get("walls", [])],
-        velocity=d.get("velocity", 0.8),
-    )
+    """Request profile layered over the stored one, so what Otto has learned
+    (velocity, peak window, completion rate) survives requests that only send
+    skills / time_blocks."""
+    return Profile.from_dict({**store.load_profile().to_dict(), **d})
 
 def _goals_from(items: list[dict]) -> list[Goal]:
     return [Goal(**g) for g in items]
@@ -148,129 +157,96 @@ def chat(body: ChatBody):
     review = direction_review([], goals[0]) if goals else ""
     return {"narration": narrate(body.message, body.plan_summary), "review": review}
 
-# ---- AI: smart reschedule & goal review ----------------------------------
-#
-# Require OPENAI_API_KEY in backend/.env  (EXA_API_KEY optional for richer goal review)
-# Both endpoints degrade gracefully: 503 lets the frontend fall back to client-side logic.
+# ---- calendar scheduling (engine — deterministic, no LLM, no key needed) --------
 
 class CalEvent(BaseModel):
+    model_config = ConfigDict(extra="allow")  # extra keys (color, prereq_ids, deadline_iso…) pass through
     id: str
     title: str
-    day: int          # June date 22-28
-    startMin: int     # minutes from midnight, multiples of 15
-    durationMin: int
-    color: str = ""   # optional — frontend derives display color from category
-    category: str
+    day: int          # date of month, matches week_days
+    startMin: int     # minutes from midnight
+    durationMin: int = Field(gt=0)
+    category: str = "admin"
     fixed: bool = False
 
-class RescheduleRequest(BaseModel):
+class ScheduleRequest(BaseModel):
     events: list[CalEvent]
-    pinned_ids: list[str]   # IDs user explicitly moved — must stay put
+    pinned_ids: list[str] = []      # events the user just moved — must stay put
+    week_days: list[int] = Field(min_length=7, max_length=7)  # date-of-month for Mon..Sun
+    week_start_iso: str | None = None   # ISO date of Monday; enables real deadlines + "don't schedule the past"
+    mode: str = "displaced"         # "displaced" = only fix what the change broke · "full" = re-optimise all flexible
 
-class RescheduleResponse(BaseModel):
+class ScheduleResponse(BaseModel):
     events: list[dict]
-    conflicts: list[str]    # IDs the AI couldn't place ideally
+    conflicts: list[str]            # events the engine couldn't place cleanly / that break prereq order
+    moved: list[str]
     explanation: str
 
-_RESCHEDULE_SYSTEM = """\
-You are an expert personal productivity scheduler for a solo job-seeker.
-The week is Mon 22 Jun – Sun 28 Jun 2026 (day integers 22-28).
-
-━━━ ABSOLUTE HARD RULES (violating any = wrong answer) ━━━
-1. Events in pinned_ids: NEVER change their day or startMin. Copy them exactly.
-2. Events with fixed=true: NEVER change their day or startMin. Copy them exactly.
-3. Zero overlaps on any day: for any two events on the same day,
-   (earlier.startMin + earlier.durationMin) <= later.startMin
-4. Every startMin must be a multiple of 15.
-5. Every event must sit inside [480, 1380) minutes (08:00–23:00).
-6. Return ALL events — never drop one.
-
-━━━ DISTRIBUTION RULE (most important scheduling goal) ━━━
-SPREAD events across the whole week. Do NOT cluster flexible events onto one day.
-Target load per day: 2–3 events. Hard cap: 4 events per day maximum.
-If moving an event to a day would push that day over 4 events, pick a different day.
-Empty days are wasted capacity — fill them before adding a 4th event to any day.
-
-━━━ PRODUCTIVITY PATTERN (apply after distribution) ━━━
-Category → optimal time of day:
-  gym / life    → earliest morning slot available (before 09:00 ideally)
-  leetcode      → 08:00–12:00 (needs fresh focus)
-  llm / system-design / deep work → 09:00–13:00 (peak cognitive window)
-  interview     → whenever fixed/pinned dictates; otherwise morning
-  admin / life  → 13:00–18:00 (lower cognitive load tasks)
-
-On any day that already has a gym event → schedule it first, then put all
-deep-work (llm, leetcode, system-design) next, then admin last.
-This gym-first pattern produces ~90% efficiency on those days — preserve it.
-
-Do NOT stack more than 3 hours of deep-work without at least a 15-min gap.
-
-━━━ OUTPUT FORMAT ━━━
-Return valid JSON only — no markdown, no explanation outside the JSON:
-{
-  "events": [ /* ALL events; each must have every original field plus updated day & startMin */ ],
-  "conflicts": [ /* ids of events you could not place without a compromise */ ],
-  "explanation": "One sentence: what you changed and why (mention specific days)."
-}"""
-
-
-def _build_day_load(events: list) -> str:
-    """Return a human-readable summary of how many events are on each day."""
-    counts: dict[int, list[str]] = {d: [] for d in range(22, 29)}
-    for e in events:
-        if e.day in counts:
-            counts[e.day].append(f"{e.title}({e.category})")
-    day_names = {22:"Mon", 23:"Tue", 24:"Wed", 25:"Thu", 26:"Fri", 27:"Sat", 28:"Sun"}
-    lines = []
-    for d, items in counts.items():
-        tag = " ← HEAVY" if len(items) >= 4 else (" ← light" if len(items) <= 1 else "")
-        lines.append(f"  {day_names[d]} {d}: {len(items)} events{tag}  [{', '.join(items) or 'empty'}]")
-    return "\n".join(lines)
-
-
-@app.post("/api/ai/reschedule", response_model=RescheduleResponse)
-def ai_reschedule(body: RescheduleRequest):
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise HTTPException(503, detail="OPENAI_API_KEY not configured")
-    try:
-        from openai import OpenAI as _OAI
-        c = _OAI(api_key=key)
-    except Exception as e:
-        raise HTTPException(503, detail=str(e))
-
-    day_load = _build_day_load(body.events)
-    events_json = json.dumps([e.model_dump() for e in body.events], indent=2)
-
-    user_msg = (
-        f"Pinned IDs (must not move at all): {body.pinned_ids}\n\n"
-        f"Current day load BEFORE your reschedule:\n{day_load}\n\n"
-        f"Full event list:\n{events_json}\n\n"
-        "Redistribute flexible events so the week is balanced (2–3 events/day). "
-        "Apply the productivity patterns (gym-first days, deep-work in the morning). "
-        "Move events to lighter days before adding a 4th event to any day."
+@app.post("/api/schedule", response_model=ScheduleResponse)
+def api_schedule(body: ScheduleRequest):
+    if body.mode not in ("displaced", "full"):
+        raise HTTPException(422, detail="mode must be 'displaced' or 'full'")
+    week_start = None
+    if body.week_start_iso:
+        try:
+            week_start = date.fromisoformat(body.week_start_iso[:10])
+        except ValueError:
+            raise HTTPException(422, detail="week_start_iso must be an ISO date")
+    now = datetime.now()
+    result = reschedule_events(
+        [e.model_dump() for e in body.events], body.pinned_ids,
+        store.load_profile(), body.week_days,
+        week_start=week_start, today=now.date() if week_start else None,
+        now_min=now.hour * 60 + now.minute, mode=body.mode,
     )
+    return ScheduleResponse(**result)
 
-    r = c.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": _RESCHEDULE_SYSTEM},
-            {"role": "user",   "content": user_msg},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.2,
-        max_tokens=3000,
+
+# ---- learning loop: signals in → profile updated → next /api/schedule uses it ----
+
+class ReflectionBody(BaseModel):
+    task_id: str
+    choice: ReflectionChoice
+    planned_minutes: int = Field(gt=0)
+    actual_minutes: int = Field(ge=0, le=24 * 60)
+    category: str = "deep_work"      # frontend labels like "leetcode" are mapped to engine categories
+    ts: str | None = None
+
+class EnergyBody(BaseModel):
+    level: int = Field(ge=1, le=5)
+    ts: str | None = None            # defaults to now
+
+def _learned(p: Profile) -> dict:
+    return {
+        "avg_velocity": p.avg_velocity,
+        "peak_window": list(p.peak_window),
+        "completion_rate": p.completion_rate,
+        "energy_logs": len(p.energy_logs),
+        "reflections": len(p.reflections),
+    }
+
+@app.get("/api/learning")
+def get_learning():
+    return _learned(store.load_profile())
+
+@app.post("/api/learning/reflection")
+def post_reflection(body: ReflectionBody):
+    ts = body.ts or datetime.now().isoformat(timespec="minutes")
+    reflection = TaskReflection(
+        task_id=body.task_id, ts=ts, choice=body.choice,
+        planned_minutes=body.planned_minutes, actual_minutes=body.actual_minutes,
+        category=to_category(body.category).value,
     )
-    data = json.loads(r.choices[0].message.content)
+    with store.locked_profile() as p:
+        apply_all_signals(p, reflection)
+        return _learned(p)
 
-    # Sanity-check: reject if AI dropped events
-    returned_ids = {e["id"] for e in data.get("events", [])}
-    sent_ids     = {e.id for e in body.events}
-    if returned_ids != sent_ids:
-        # AI dropped or invented events — fall back by returning input unchanged
-        raise HTTPException(500, detail=f"AI returned wrong event set: missing={sent_ids-returned_ids}")
-
-    return RescheduleResponse(**data)
+@app.post("/api/learning/energy")
+def post_energy(body: EnergyBody):
+    ts = body.ts or datetime.now().isoformat(timespec="minutes")
+    with store.locked_profile() as p:
+        add_energy_log(p, EnergyLog(ts=ts, level=body.level))
+        return _learned(p)
 
 
 class GoalInput(BaseModel):

@@ -1,8 +1,8 @@
 """SQLAlchemy ORM models — persisted layer mapping to app/models.py dataclasses.
 
 Tables:
-  profiles, skills, walls, goals, goal_required_skills,
-  tasks, task_prereqs, plans, blocks, completion_events
+  profiles, skills, time_blocks, goals, goal_required_skills,
+  tasks, task_prereqs, plans, blocks, task_completions
 """
 from __future__ import annotations
 
@@ -30,11 +30,11 @@ class ProfileRow(Base):
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     session_id = Column(String, index=True, nullable=True)
     free_hours_per_day = Column(Float, nullable=False, default=3.0)
-    velocity = Column(Float, nullable=False, default=0.8)
+    completion_rate = Column(Float, nullable=False, default=0.8)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     skills = relationship("SkillRow", back_populates="profile", cascade="all, delete-orphan")
-    walls = relationship("WallRow", back_populates="profile", cascade="all, delete-orphan")
+    time_blocks = relationship("TimeBlockRow", back_populates="profile", cascade="all, delete-orphan")
     goals = relationship("GoalRow", back_populates="profile", cascade="all, delete-orphan")
     plans = relationship("PlanRow", back_populates="profile", cascade="all, delete-orphan")
 
@@ -50,8 +50,8 @@ class SkillRow(Base):
     profile = relationship("ProfileRow", back_populates="skills")
 
 
-class WallRow(Base):
-    __tablename__ = "walls"
+class TimeBlockRow(Base):
+    __tablename__ = "time_blocks"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     profile_id = Column(UUID(as_uuid=False), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False)
@@ -60,7 +60,7 @@ class WallRow(Base):
     end_min = Column(Integer, nullable=False)
     label = Column(String, default="")
 
-    profile = relationship("ProfileRow", back_populates="walls")
+    profile = relationship("ProfileRow", back_populates="time_blocks")
 
 
 class GoalRow(Base):
@@ -148,8 +148,8 @@ class BlockRow(Base):
     plan = relationship("PlanRow", back_populates="blocks")
 
 
-class CompletionEventRow(Base):
-    __tablename__ = "completion_events"
+class TaskCompletionRow(Base):
+    __tablename__ = "task_completions"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     task_id = Column(String, nullable=False, index=True)
