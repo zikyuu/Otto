@@ -42,3 +42,9 @@ export function weekRangeLabel(weekDates) {
   }
   return `${MONTHS[first.getMonth()]} – ${MONTHS[last.getMonth()]} ${last.getFullYear()}`;
 }
+
+// Local-date ISO string ("2026-08-03"). toISOString() would shift the day for users east/west of UTC.
+export function isoDate(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

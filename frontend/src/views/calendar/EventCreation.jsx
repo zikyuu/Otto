@@ -606,7 +606,6 @@ export default function EventCreation({
                         type="text"
                         defaultValue={fmtMins(timeMin)}
                         key={`${s.id}-${s.locked ? 'L' : timeMin}`}
-                        onFocus={e => e.target.select()}
                         onBlur={e => handleTimeInput(s.id, e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
                         onPointerDown={e => e.stopPropagation()}

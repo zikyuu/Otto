@@ -222,3 +222,6 @@ __marimo__/
 
 # Node / Frontend
 node_modules/
+
+# learned user profile (personal data)
+backend/data/

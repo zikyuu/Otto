@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { CATEGORY_COLORS, DEFAULT_CAT_COLOR } from '../../data/fixtures.js';
 import {
   PX_PER_MIN, DAY_START, DAY_END, GRID_H, HOURS, DOW_NAMES,
-  fmtTime, snapMin, getWeekDates,
+  fmtTime, snapMin, getWeekDates, isoDate,
 } from './calendarUtils.js';
 import { useDragResize } from './useDragResize.js';
 import EventCreation from './EventCreation.jsx';
@@ -211,15 +211,21 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
       const res = await fetch('/api/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events: postDragEvents, pinned_ids: [pinnedId] }),
+        body: JSON.stringify({
+          events: postDragEvents,
+          pinned_ids: [pinnedId],
+          week_days: weekDayNums,
+          week_start_iso: isoDate(weekDates[0]),
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${res.status}`);
+        throw new Error(typeof err.detail === 'string' ? err.detail : `HTTP ${res.status}`);
       }
       const data = await res.json();
       setEvents(data.events);
       setConflicts(new Set(data.conflicts || []));
+      setAiNote(data.explanation || '');
     } catch (err) {
       console.warn('[scheduler] failed, reverting drag:', err.message);
       setEvents(snapshotBeforeDrag);
@@ -337,7 +343,7 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
           )}
           {aiLoading && (
             <span style={{ fontSize: 12, color: '#AD9B84', fontStyle: 'italic', animation: 'ringPulse 1.1s ease infinite' }}>
-              AI rescheduling…
+              Rescheduling…
             </span>
           )}
         </div>
@@ -503,7 +509,7 @@ export default function WeekView({ weekOffset, sel, setSel, events, setEvents })
         </div>
 
         <div style={{ textAlign: 'center', fontSize: 11, color: '#AD9B84', fontStyle: 'italic', padding: '7px 0 9px', borderTop: '1px solid #F0E8DC' }}>
-          drag flexible events · AI rearranges the rest · 🔒 locked events stay fixed
+          drag flexible events · Otto rearranges what your move displaces · 🔒 locked events stay fixed
         </div>
       </div>
 
