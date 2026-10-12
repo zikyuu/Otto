@@ -1,138 +1,72 @@
-import eatingImg from '../assets/mascots/eating.png';
+import Banner from '../components/Banner.jsx';
+import Mascot from '../components/Mascot.jsx';
+import { IconArrow, IconCheck, IconPlus, IconClock, IconSparkle } from './calendar/Icons.jsx';
 
 export default function Now({ tasks, onToggle, onFellBehind, onOpenFeasibility, onAddTask }) {
+  const date = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   return (
-    <div style={{ animation: 'fadeIn .45s ease' }}>
-      {/* Hero */}
-      <div style={{
-        position: 'relative',
-        background: 'linear-gradient(150deg,#F3EBDC 0%,#F5EEE1 45%,#FBEFEA 100%)',
-        padding: '38px 44px 34px', overflow: 'hidden',
-      }}>
-        <div style={{
-          position: 'absolute', right: -40, top: -40,
-          width: 230, height: 230, borderRadius: '50%',
-          background: 'rgba(255,255,255,.35)',
-        }} />
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 24, flexWrap: 'wrap', position: 'relative',
-        }}>
-          <div style={{ minWidth: 300 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, letterSpacing: '1.5px', color: '#AD9B84', textTransform: 'uppercase' }}>
-              Saturday · 27 June
-            </div>
-            <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 42, color: '#4A3526', lineHeight: 1.02, marginTop: 4 }}>
-              Hello, Yuki
-            </div>
-            <div style={{ fontStyle: 'italic', fontWeight: 600, fontSize: 18, color: '#8C7A64', marginTop: 6 }}>
-              "Lock In NOW. Not too late to reverse unemployment."
-            </div>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 16,
-              background: '#E2F2EA', borderRadius: 999, padding: '8px 15px',
-            }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#6BBF95', animation: 'pulseDot 2.2s infinite' }} />
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#4FA77D' }}>You're slightly ahead this week</span>
-            </div>
-          </div>
-          <img
-            src={eatingImg} alt="happy otter eating meatballs"
-            style={{ width: 270, height: 'auto', flex: '0 0 auto', animation: 'floatM 5.5s ease-in-out infinite', filter: 'drop-shadow(0 12px 16px rgba(110,84,54,.22))' }}
-          />
-        </div>
+    <div style={{ padding: '14px 28px 48px 14px', maxWidth: 1080, margin: '0 auto' }}>
+      <Banner art="banner-now" minHeight={168}>
+        <p className="pill-tag" style={{ margin: 0 }}>{date}</p>
+        <h1 style={{ margin: '12px 0 0', fontSize: 40, fontWeight: 600, letterSpacing: '-.04em', lineHeight: 1 }}>Hello, Yuki</h1>
+        <p style={{ margin: '10px 0 0', fontSize: 15, color: 'var(--ink-2)', maxWidth: 420 }}>Lock in now. It is not too late to reverse unemployment.</p>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 16, background: 'rgba(224,235,211,.9)', borderRadius: 999, padding: '7px 14px', fontWeight: 600, fontSize: 12.5, color: '#3F6B49' }}>
+          <i style={{ width: 8, height: 8, borderRadius: '50%', background: '#6FA079', animation: 'pulseDot 2.2s infinite' }} />Slightly ahead this week
+        </span>
+        <Mascot art="otter-eating" size={170} zoom={2.4} float style={{ position: 'absolute', right: 36, bottom: -6 }} />
+      </Banner>
 
-        {/* One best move */}
-        <div style={{
-          position: 'relative', marginTop: 26,
-          background: '#fff', borderRadius: 24, padding: '24px 26px',
-          boxShadow: '0 20px 44px -24px rgba(150,108,64,.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 20, flexWrap: 'wrap',
-        }}>
+      <section className="bezel bezel--float rise" style={{ '--i': 1, marginTop: 18 }} aria-label="Your one best move">
+        <div className="core" style={{ padding: '26px 30px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 260 }}>
-            <div style={{ fontWeight: 800, fontSize: 12, letterSpacing: '1.5px', color: '#A8703E', textTransform: 'uppercase' }}>
-              ✦ Your one best move right now
-            </div>
-            <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 26, color: '#4A3526', margin: '8px 0 7px', lineHeight: 1.1 }}>
-              Add embeddings + vector search (pgvector)
-            </div>
+            <p className="label-caps" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent-ink)' }}><IconSparkle size={12} />Your one best move right now</p>
+            <h2 style={{ margin: '10px 0 10px', fontSize: 25, fontWeight: 600, letterSpacing: '-.03em', lineHeight: 1.1 }}>Add embeddings + vector search (pgvector)</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ background: '#F2E6D4', color: '#A8703E', fontWeight: 700, fontSize: 12, padding: '5px 11px', borderRadius: 999 }}>
-                Ship a production RAG app
-              </span>
-              <span style={{ color: '#8C7A64', fontWeight: 600, fontSize: 14 }}>· 45 min</span>
+              <span className="pill-tag" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 12 }}>Ship a production RAG app</span>
+              <span style={{ color: 'var(--ink-3)', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconClock size={13} />45 min</span>
             </div>
           </div>
-          <div style={{
-            background: 'linear-gradient(135deg,#C0894F,#A8703E)', color: '#fff',
-            fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 16,
-            padding: '15px 26px', borderRadius: 16,
-            boxShadow: '0 12px 22px -10px rgba(150,108,64,.7)',
-            cursor: 'pointer', whiteSpace: 'nowrap',
-          }}>
-            Start · 45 min
-          </div>
+          <button className="btn btn--primary" style={{ height: 46, padding: '0 10px 0 24px', fontSize: 14 }}>Start<span className="btn__icon" style={{ width: 30, height: 30, marginRight: 0 }}><IconArrow size={14} /></span></button>
+        </div>
+      </section>
+
+      <button onClick={onOpenFeasibility} className="rise" style={{
+        '--i': 2, width: '100%', marginTop: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
+        background: 'rgba(247,235,203,.8)', border: 0, borderRadius: 22, padding: '14px 20px', boxShadow: '0 0 0 1px #EBD9A6',
+      }}>
+        <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#F6E1B8', color: '#B98532', display: 'grid', placeItems: 'center', flex: '0 0 auto' }}><IconClock size={16} /></span>
+        <span style={{ flex: 1, fontSize: 13.5, color: '#9C7A33' }}><strong style={{ color: '#7D5A16', fontWeight: 600 }}>This week is a little full at your pace.</strong> Tap to see what to protect.</span>
+        <IconArrow size={15} style={{ color: '#B98532' }} />
+      </button>
+
+      <div className="rise" style={{ '--i': 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '30px 4px 14px' }}>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, letterSpacing: '-.025em' }}>Today, in order</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button className="btn btn--icon" onClick={onAddTask} aria-label="Add a task"><IconPlus size={14} /></button>
+          <button className="btn" onClick={onFellBehind}>I fell behind<IconArrow size={13} /></button>
         </div>
       </div>
 
-      {/* Today list */}
-      <div style={{ padding: '26px 44px 40px' }}>
-        {/* Capacity banner */}
-        <div onClick={onOpenFeasibility} style={{
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 13,
-          background: '#FBEFD9', border: '1px solid #F3DCB0', borderRadius: 16,
-          padding: '13px 17px', marginBottom: 24,
-        }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: '50%', background: '#F6E1B8',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#D8923A', fontSize: 16, flex: '0 0 auto',
-          }}>◔</div>
-          <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 800, color: '#9A6B1E', fontSize: 14 }}>This week is a little full at your pace.</span>
-            {' '}<span style={{ color: '#B08440', fontSize: 13 }}>Tap to see what to protect.</span>
-          </div>
-          <span style={{ color: '#D8923A', fontWeight: 800 }}>→</span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ fontFamily: "'Quicksand'", fontWeight: 700, fontSize: 22, color: '#4A3526' }}>Today, in order</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div onClick={onAddTask} style={{
-              cursor: 'pointer', fontWeight: 800, fontSize: 18, color: '#fff',
-              background: 'linear-gradient(135deg,#C0894F,#A8703E)',
-              borderRadius: 999, width: 34, height: 34,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 12px -6px rgba(150,108,64,.6)',
-            }}>+</div>
-          <div onClick={onFellBehind} style={{
-            cursor: 'pointer', fontWeight: 700, fontSize: 13, color: '#8C7A64',
-            border: '1.5px solid #E1D5C0', borderRadius: 999, padding: '8px 15px',
-          }}>I fell behind →</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {tasks.map((t) => (
-            <div key={t.k} onClick={() => onToggle(t.k)} style={{
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14,
-              background: '#fff', border: '1px solid #ECE3D4', borderRadius: 16,
-              padding: '14px 17px', boxShadow: '0 6px 16px -14px rgba(74,54,38,.5)',
+      <ul style={{ margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {tasks.map((t, i) => (
+          <li key={t.k} className="bezel bezel--sm rise" style={{ '--i': i + 4, listStyle: 'none' }}>
+            <button className="core" onClick={() => onToggle(t.k)} role="checkbox" aria-checked={t.checked} style={{
+              width: '100%', border: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', textAlign: 'left', color: 'inherit',
             }}>
-              {t.checked
-                ? <div style={{ width:24,height:24,borderRadius:8,background:'#6BBF95',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flex:'0 0 auto' }}>✓</div>
-                : <div style={{ width:24,height:24,borderRadius:8,border:'2px solid #D9CAB2',flex:'0 0 auto' }} />
-              }
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily:"'Quicksand'", fontWeight:600, fontSize:16, color: t.checked ? '#B6A48C' : '#4A3526', textDecoration: t.checked ? 'line-through' : 'none' }}>{t.t}</div>
-                <div style={{ fontSize:12.5, color:'#AD9B84', marginTop:1 }}>{t.meta}</div>
-              </div>
-              {t.star && !t.checked && <span style={{ color:'#A8703E', fontSize:14, fontWeight:800 }}>★ now</span>}
-            </div>
-          ))}
-        </div>
-      </div>
+              <span style={{
+                width: 24, height: 24, borderRadius: 9, flex: '0 0 auto', display: 'grid', placeItems: 'center', color: '#fff',
+                background: t.checked ? 'var(--accent)' : 'transparent', boxShadow: `inset 0 0 0 1.5px ${t.checked ? 'var(--accent)' : 'var(--ink-4)'}`,
+                animation: t.checked ? 'checkPop .5s var(--spring)' : 'none',
+              }}>{t.checked && <IconCheck size={14} />}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 15.5, fontWeight: 600, letterSpacing: '-.01em', color: t.checked ? 'var(--ink-4)' : 'var(--ink)', textDecoration: t.checked ? 'line-through' : 'none' }}>{t.t}</span>
+                <span style={{ display: 'block', fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2 }}>{t.meta}</span>
+              </span>
+              {t.star && !t.checked && <span className="pill-tag">Now</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

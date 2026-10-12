@@ -1,72 +1,59 @@
 import { BAR_DATA } from '../data/fixtures.js';
-import eatingImg from '../assets/mascots/eating.png';
+import Banner from '../components/Banner.jsx';
+import Mascot from '../components/Mascot.jsx';
+
+function Stat({ kicker, big, unit, sub, tone, i }) {
+  return (
+    <div className="bezel rise" style={{ '--i': i }}>
+      <div className="core" style={{ padding: '22px 24px', background: tone ? '#E4ECD6' : undefined }}>
+        <p className="label-caps" style={{ margin: 0, color: tone ? 'var(--accent-ink)' : undefined }}>{kicker}</p>
+        <div style={{ fontSize: 36, fontWeight: 600, letterSpacing: '-.04em', margin: '10px 0 4px', lineHeight: 1 }}>{big}{unit && <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink-3)', letterSpacing: 0, marginLeft: 4 }}>{unit}</span>}</div>
+        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)' }}>{sub}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function Stats() {
   return (
-    <div style={{ padding:'32px 44px 40px', animation:'fadeIn .45s ease' }}>
-      <div style={{ fontFamily:"'Quicksand'", fontWeight:700, fontSize:30, color:'#4A3526' }}>Your week</div>
-      <div style={{ fontSize:14, color:'#8C7A64', marginTop:3 }}>Measured by showing up — not by being perfect.</div>
+    <div style={{ padding: '14px 28px 48px 14px', maxWidth: 1080, margin: '0 auto' }}>
+      <Banner art="banner-stats" minHeight={130}>
+        <p className="pill-tag" style={{ margin: 0 }}>Last 7 days</p>
+        <h1 style={{ margin: '12px 0 0', fontSize: 32, fontWeight: 600, letterSpacing: '-.035em', lineHeight: 1.05 }}>Your week</h1>
+        <p style={{ margin: '8px 0 0', fontSize: 14, color: 'var(--ink-2)' }}>Measured by showing up, not by being perfect.</p>
+      </Banner>
 
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:14, marginTop:22 }}>
-        <StatCard>
-          <Kicker>MOMENTUM STREAK</Kicker>
-          <BigNum>12 <span style={{ fontSize:15, color:'#6BBF95' }}>days</span></BigNum>
-          <Sub>You showed up 12 days running 🦦</Sub>
-        </StatCard>
-        <div style={{ background:'#E2F2EA', border:'1px solid #C9E6D5', borderRadius:20, padding:20 }}>
-          <Kicker color="#4FA77D">VS YOUR PLAN</Kicker>
-          <div style={{ fontFamily:"'Quicksand'", fontWeight:700, fontSize:30, color:'#4A3526', marginTop:6 }}>Slightly ahead</div>
-          <Sub color="#5C7A6A">+8% on coding · a touch behind on fitness</Sub>
-        </div>
-        <StatCard>
-          <Kicker>FOCUS HOURS</Kicker>
-          <BigNum>17<span style={{ fontSize:15, color:'#8C7A64' }}>h</span></BigNum>
-          <Sub>across 6 of 7 days</Sub>
-        </StatCard>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16, marginTop: 18 }}>
+        <Stat i={1} kicker="Momentum streak" big="12" unit="days" sub="You showed up 12 days running." />
+        <Stat i={2} kicker="Versus your plan" big="Slightly ahead" tone sub="+8% on coding, a touch behind on fitness." />
+        <Stat i={3} kicker="Focus hours" big="17" unit="h" sub="Across 6 of 7 days." />
       </div>
 
-      {/* Bar chart */}
-      <div style={{ background:'#fff', border:'1px solid #ECE3D4', borderRadius:22, padding:24, marginTop:16, boxShadow:'0 12px 30px -26px rgba(74,54,38,.5)' }}>
-        <div style={{ fontFamily:"'Quicksand'", fontWeight:700, fontSize:18, color:'#4A3526' }}>How locked-in you were · last 7 days</div>
-        <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap:14, height:170, marginTop:22 }}>
-          {BAR_DATA.map(({ d, h, today }) => (
-            <div key={d+h} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:9, height:'100%', justifyContent:'flex-end' }}>
-              <div style={{ width:'100%', maxWidth:42, height:h, borderRadius:'11px 11px 6px 6px', background: today?'#A8703E':'#DCC8A8' }} />
-              <span style={{ fontWeight:700, fontSize:12, color: today?'#A8703E':'#AD9B84' }}>{d}</span>
-            </div>
-          ))}
+      <section className="bezel rise" style={{ '--i': 4, marginTop: 18 }}>
+        <div className="core" style={{ padding: '26px 28px' }}>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, letterSpacing: '-.02em' }}>How locked-in you were</h2>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, height: 180, marginTop: 24 }}>
+            {BAR_DATA.map(({ d, h, today }, i) => (
+              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, height: '100%', justifyContent: 'flex-end' }}>
+                <div style={{ width: '100%', maxWidth: 46, height: h, borderRadius: 16, transformOrigin: 'bottom', animation: `barGrow 1s var(--spring) ${300 + i * 90}ms both`,
+                  background: today ? 'linear-gradient(180deg,#5E8B68,#3F6B49)' : 'linear-gradient(180deg,#E4D9B8,#D6C7A0)', boxShadow: today ? '0 14px 18px -12px rgba(30,45,34,.7)' : 'none' }} />
+                <span style={{ fontWeight: 600, fontSize: 12, color: today ? 'var(--accent-ink)' : 'var(--ink-3)' }}>{d}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* Recap */}
-      <div style={{ position:'relative', background:'linear-gradient(135deg,#F5EEE1,#FBF1EC)', border:'1px solid #EADFCC', borderRadius:22, padding:'22px 24px', marginTop:16, overflow:'hidden' }}>
-        <img src={eatingImg} alt="happy otter" style={{ position:'absolute', right:14, bottom:-10, width:118, height:'auto', opacity:.96, filter:'drop-shadow(0 8px 12px rgba(110,84,54,.18))' }} />
-        <div style={{ fontWeight:800, fontSize:11, letterSpacing:'1px', color:'#A8703E' }}>REALISTIC RECAP</div>
-        <div style={{ fontFamily:"'Quicksand'", fontWeight:700, fontSize:20, color:'#4A3526', margin:'7px 0 6px' }}>A genuinely good week.</div>
-        <div style={{ position:'relative', fontSize:15, color:'#8C7A64', lineHeight:1.55, maxWidth:'74%' }}>
-          Given a full work schedule, you shipped 2 RAG milestones and kept a 12-day streak. Fitness slipped a little — and that's fine, it's protected for next week. No catching-up debt. Just forward.
+      <section className="bezel rise" style={{ '--i': 5, marginTop: 18 }}>
+        <div className="core" style={{ padding: '26px 30px', background: 'linear-gradient(120deg,#FBF8EE,#E9EFD9)', minHeight: 150 }}>
+          <p className="label-caps" style={{ margin: 0, color: 'var(--accent-ink)' }}>A realistic recap</p>
+          <h2 style={{ margin: '10px 0 8px', fontSize: 22, fontWeight: 600, letterSpacing: '-.03em' }}>A genuinely good week.</h2>
+          <p style={{ margin: 0, fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.6, maxWidth: '70%' }}>
+            Given a full work schedule, you shipped 2 RAG milestones and kept a 12-day streak. Fitness slipped a little, and that is fine: it is protected for next week. No catching-up debt. Just forward.
+          </p>
+          <Mascot art="otter-celebrating" size={150} zoom={2.5} float style={{ position: 'absolute', right: 24, bottom: -6 }} />
         </div>
-      </div>
+      </section>
     </div>
   );
-}
-
-function StatCard({ children }) {
-  return (
-    <div style={{ background:'#fff', border:'1px solid #ECE3D4', borderRadius:20, padding:20, boxShadow:'0 12px 30px -26px rgba(74,54,38,.5)' }}>
-      {children}
-    </div>
-  );
-}
-
-function Kicker({ children, color = '#AD9B84' }) {
-  return <div style={{ fontWeight:800, fontSize:11, letterSpacing:'1px', color }}>{children}</div>;
-}
-
-function BigNum({ children }) {
-  return <div style={{ fontFamily:"'Quicksand'", fontWeight:700, fontSize:38, color:'#4A3526', marginTop:6 }}>{children}</div>;
-}
-
-function Sub({ children, color = '#8C7A64' }) {
-  return <div style={{ fontSize:12.5, color, marginTop:3 }}>{children}</div>;
 }
