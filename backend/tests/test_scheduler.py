@@ -1,4 +1,5 @@
 """Scheduler behaviour: ordering, deadlines, gating, capacity."""
+import pytest
 from datetime import date
 
 from app.engine.scheduler import schedule
@@ -171,3 +172,94 @@ def test_daily_cap_limits_load():
 def test_meatball_grinder_tasks_are_parked_not_scheduled():
     plan = schedule([task("a", status=Status.MEATBALL_GRINDER)], profile(), 6)
     assert plan.meatball_grinder == ["a"] and not plan.blocks and plan.feasible
+
+
+# ---- focus-aware splitting: the scheduler decides, from what it has learned --------
+
+from app.engine.scheduler import plan_sessions  # noqa: E402
+
+
+def focus_profile(span=120, evidence=5, **kw):
+    p = profile(**kw)
+    p.focus_span_min, p.focus_evidence = span, evidence
+    return p
+
+
+def long_task(id="big", mins=420, **kw):
+    return task(id, mins, category=Category.DEEP_WORK, **kw)
+
+
+def test_no_evidence_means_the_users_own_block_is_respected():
+    p = focus_profile(evidence=2)
+    assert plan_sessions(long_task(), p) is None
+    plan = schedule([long_task()], p, 6)
+    assert plan.splits == {} and len(blk(plan, "big")) == 1
+
+
+def test_fading_focus_gets_the_block_cut_into_sessions():
+    p = focus_profile(span=120)
+    lens = plan_sessions(long_task(mins=420), p)
+    assert lens and len(lens) == 4 and sum(lens) == 420 and max(lens) <= 120 * 1.15
+
+
+def test_long_focus_history_keeps_the_long_block_whole():
+    p = focus_profile(span=480)
+    assert plan_sessions(long_task(mins=420), p) is None
+    plan = schedule([long_task(mins=420)], p, 6)
+    assert len(blk(plan, "big")) == 1 and plan.splits == {}
+
+
+def test_same_task_splits_for_one_user_and_not_the_other():
+    t = long_task(mins=300)
+    assert plan_sessions(t, focus_profile(span=90)) is not None
+    assert plan_sessions(t, focus_profile(span=400)) is None
+
+
+def test_tasks_within_tolerance_of_the_span_stay_whole():
+    assert plan_sessions(long_task(mins=130), focus_profile(span=120)) is None
+    assert plan_sessions(long_task(mins=200), focus_profile(span=120)) is not None
+
+
+def test_velocity_counts_because_focus_is_measured_in_real_time():
+    p = focus_profile(span=120)
+    p.avg_velocity["deep_work"] = 1.0
+    assert plan_sessions(long_task(mins=130), p) is None
+    p.avg_velocity["deep_work"] = 1.6      # 130 planned = ~208 real minutes
+    assert plan_sessions(long_task(mins=130), p) is not None
+
+
+@pytest.mark.parametrize("cat", [Category.ADMIN, Category.PHYSICAL, Category.SOCIAL])
+def test_only_demanding_work_is_ever_split(cat):
+    assert plan_sessions(task("t", 600, category=cat), focus_profile(span=60)) is None
+
+
+def test_sessions_are_chained_in_order_on_different_days():
+    p = focus_profile(span=120)
+    plan = schedule([long_task(mins=360)], p, 6)
+    ids = plan.splits["big"]
+    assert len(ids) == 3 and plan.feasible
+    spots = [(blk(plan, i)[0].day, blk(plan, i)[0].start_min) for i in ids]
+    assert spots == sorted(spots)                         # in order
+    assert len({d for d, _ in spots}) == 3                # one per day when the week allows
+
+
+def test_dependents_wait_for_the_last_session():
+    p = focus_profile(span=120)
+    after = task("after", 30, category=Category.ADMIN, prereq_ids=["big"])
+    plan = schedule([long_task(mins=360), after], p, 6)
+    last = plan.splits["big"][-1]
+    end_last = max((b.day, b.end_min) for b in blk(plan, last))
+    assert (blk(plan, "after")[0].day, blk(plan, "after")[0].start_min) >= end_last
+
+
+def test_focus_split_can_be_limited_to_chosen_tasks():
+    p = focus_profile(span=120)
+    plan = schedule([long_task("a", 360), long_task("b", 360)], p, 6, focus_split_ids={"a"})
+    assert set(plan.splits) == {"a"} and len(blk(plan, "b")) == 1
+
+
+def test_sessions_use_the_peak_window_because_each_is_demanding_work():
+    p = focus_profile(span=120)
+    plan = schedule([long_task(mins=360)], p, 6)
+    for b in plan.blocks:
+        assert 9 * 60 <= b.start_min < 12 * 60
