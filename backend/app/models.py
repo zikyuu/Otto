@@ -116,6 +116,10 @@ class TimeBlock:
     start_min: int  # minutes from midnight, e.g. 540 = 09:00
     end_min: int
     label: str = ""
+    kind: str = ""  # Category value of what occupies the slot ("social", "deep_work"...), "" = plain block
+
+
+BATCHING_CHOICES = ("none", "batch", "spread")
 
 
 @dataclass
@@ -157,6 +161,12 @@ class Profile:
     post_meal_slump_min: int = 45           # low-energy buffer after 12:00
     planning_bias: float = 0.80            # cap daily scheduled load to 80% of free hours
 
+    # longest stretch of deep focus the user sustains, learnt from long sessions that went well
+    # and from labelled focus breaks. The scheduler splits a task longer than this — but only once
+    # focus_evidence shows the number is real, not the cold-start default.
+    focus_span_min: int = 120
+    focus_evidence: int = 0
+
     # how long it takes to get into the zone per category (cold-start defaults)
     # scheduler adds this to required slot size so short gaps don't get deep work
     ramp_up_min: dict[str, int] = field(
@@ -168,6 +178,34 @@ class Profile:
             "social":     0,
         }
     )
+
+    # minutes of buffer kept free after a social event (meeting hangover). Learned from energy taps
+    # logged with after_meeting_min; recovery_evidence counts those taps.
+    recovery_after_meeting: int = 15
+    recovery_evidence: int = 0
+
+    # how small admin tasks are laid out: "batch" groups them into one stretch of the day,
+    # "spread" keeps them on separate days, "none" leaves placement alone. Set by the user
+    # (stated rule / settings) — there is no honest way to infer it from taps.
+    batching_preference: str = "none"
+
+    # no more than max_deep_run_min of deep work in a row before an auto-inserted break_min break
+    max_deep_run_min: int = 90
+    break_min: int = 15
+
+    # gym-first pattern: on a day with a physical task, it goes before the day's deep work.
+    # Learned from the order the user actually finishes them (gym_evidence = days observed).
+    gym_first: bool = False
+    gym_evidence: int = 0
+
+    # completion signals seen so far — planning_bias only starts following completion_rate after a few
+    completion_evidence: int = 0
+
+    # learned parameters the user has pinned by stating them directly: learning never overwrites these
+    stated_overrides: dict[str, Any] = field(default_factory=dict)
+
+    # tasks the user flagged as a fundamental skill gap (reflection "gap") — surfaced to the goals view
+    gap_task_ids: list[str] = field(default_factory=list)
 
     # learning signal stores — appended to as user interacts, read by learning.py
     energy_logs: list[EnergyLog] = field(default_factory=list)
@@ -196,7 +234,20 @@ class Profile:
             "peak_window": list(self.peak_window),
             "post_meal_slump_min": self.post_meal_slump_min,
             "planning_bias": self.planning_bias,
+            "focus_span_min": self.focus_span_min,
+            "focus_evidence": self.focus_evidence,
             "stated_rules": list(self.stated_rules),
+            "recovery_after_meeting": self.recovery_after_meeting,
+            "recovery_evidence": self.recovery_evidence,
+            "batching_preference": self.batching_preference,
+            "max_deep_run_min": self.max_deep_run_min,
+            "break_min": self.break_min,
+            "gym_first": self.gym_first,
+            "gym_evidence": self.gym_evidence,
+            "completion_evidence": self.completion_evidence,
+            "stated_overrides": dict(self.stated_overrides),
+            "gap_task_ids": list(self.gap_task_ids),
+            "priority_windows": [asdict(w) for w in self.priority_windows],
             "energy_logs": [asdict(e) for e in self.energy_logs],
             "reflections": [{**asdict(r), "choice": r.choice.value} for r in self.reflections],
             "off_track_logs": [asdict(o) for o in self.off_track_logs],
@@ -219,7 +270,21 @@ class Profile:
         p.peak_window = (int(pw[0]), int(pw[1]))
         p.post_meal_slump_min = d.get("post_meal_slump_min", p.post_meal_slump_min)
         p.planning_bias = d.get("planning_bias", p.planning_bias)
+        p.focus_span_min = d.get("focus_span_min", p.focus_span_min)
+        p.focus_evidence = d.get("focus_evidence", p.focus_evidence)
         p.stated_rules = list(d.get("stated_rules", []))
+        p.recovery_after_meeting = d.get("recovery_after_meeting", p.recovery_after_meeting)
+        p.recovery_evidence = d.get("recovery_evidence", p.recovery_evidence)
+        bp = d.get("batching_preference", p.batching_preference)
+        p.batching_preference = bp if bp in BATCHING_CHOICES else "none"
+        p.max_deep_run_min = d.get("max_deep_run_min", p.max_deep_run_min)
+        p.break_min = d.get("break_min", p.break_min)
+        p.gym_first = bool(d.get("gym_first", p.gym_first))
+        p.gym_evidence = d.get("gym_evidence", p.gym_evidence)
+        p.completion_evidence = d.get("completion_evidence", p.completion_evidence)
+        p.stated_overrides = dict(d.get("stated_overrides", {}))
+        p.gap_task_ids = list(d.get("gap_task_ids", []))
+        p.priority_windows = [PriorityWindow(**w) for w in d.get("priority_windows", [])]
         p.energy_logs = [EnergyLog(**e) for e in d.get("energy_logs", [])]
         p.reflections = [
             TaskReflection(**{**r, "choice": ReflectionChoice(r["choice"])})
@@ -309,6 +374,10 @@ class Task:
     # used when re-placing a displaced calendar event so it lands near where it was, not on Monday.
     prefer_day: int | None = None
     prefer_start_min: int | None = None
+    split_of: str | None = None   # id of the task this is one session of (set by the scheduler's focus split)
+    must_split: bool = False      # longer than a day can hold: always spread across days into whatever time is free
+    keep_out: list[tuple[int, int, int]] = field(default_factory=list)   # (day, start, end) slots this task may not use (time reserved for something else)
+    end_by: int | None = None     # latest finish, as absolute minutes from the start of day 0 (day*1440 + minute). Used to pull a prerequisite in front of something that has to wait for it.
     user_rank: int | None = None  # user-specified rank for this task, used in priority windows
     # state
     status: Status = Status.TODO
@@ -378,6 +447,7 @@ class Block:
     overpacked: bool = False  # True if slot is slightly tight — shows ! on calendar
     session_notes: str = ""
     session_pct_delta: float = 0.0
+    is_break: bool = False    # an auto-inserted break, not work (task_id is "break:<task id>")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -392,6 +462,9 @@ class Plan:
     meatball_grinder: list[str] = field(default_factory=list)     # task_ids user explicitly parked — never auto-rescheduled
     feasible: bool = True
     tradeoff: Optional[dict] = None  # {"options": [...], "reason": "..."} shown when nothing fits
+    splits: dict[str, list[str]] = field(default_factory=dict)  # task id -> its session ids, when the scheduler split it
+    breaks: list[Block] = field(default_factory=list)           # auto-inserted breaks (never work, never overlap blocks except inside a long deep-work block)
+    displaced: list[str] = field(default_factory=list)          # task_ids bumped to make room for a non-negotiable task
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -401,6 +474,9 @@ class Plan:
             "meatball_grinder": self.meatball_grinder,
             "feasible": self.feasible,
             "tradeoff": self.tradeoff,
+            "splits": self.splits,
+            "breaks": [b.to_dict() for b in self.breaks],
+            "displaced": self.displaced,
         }
 
 
@@ -414,6 +490,7 @@ class EnergyLog:
     Accumulated over weeks → learning.py uses these to update Profile.peak_window."""
     ts: str     # ISO datetime — "2026-07-29T09:30"
     level: int  # 1=drained · 2=tired · 3=neutral · 4=in the zone · 5=energised
+    after_meeting_min: int | None = None  # minutes since a meeting/social event ended, if one just did — teaches recovery_after_meeting
 
 
 @dataclass
@@ -426,6 +503,7 @@ class OffTrackLog:
     reason: str              # "doomscrolled" | "messages" | "couldnt_focus"
                              # | "break" | "medical" | "family" | "work_crisis"
     task_id: str | None = None
+    into_task_min: int | None = None   # minutes into the work session when focus broke — teaches focus_span_min
 
 
 @dataclass
@@ -456,8 +534,8 @@ class PriorityWindow:
     window: str #week, month, year 
     start_iso: str
     end_iso: str
-    ranked_task_ids: list[str]     # most → least important, user-ordered
-    non_negotiable_ids: list[str]  # these can displace other tasks when deadline hits
+    ranked_task_ids: list[str] = field(default_factory=list)     # most → least important, user-ordered
+    non_negotiable_ids: list[str] = field(default_factory=list)  # these can displace other tasks when deadline hits
 
 
 # ---------------------------------------------------------------------------

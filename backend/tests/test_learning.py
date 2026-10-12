@@ -175,3 +175,87 @@ def test_profile_survives_save_load_roundtrip_with_learning_state():
     q = Profile.from_dict(p.to_dict())
     assert q.to_dict() == p.to_dict()
     assert q.reflections[0].choice == RC.HARDER
+
+
+# ---- focus span (what lets the scheduler split long work) ---------------------
+
+from app.engine.learning import add_off_track, FOCUS_SPAN_MIN, FOCUS_SPAN_MAX  # noqa: E402
+from app.models import OffTrackLog  # noqa: E402
+
+
+def brk(reason, into, dur=15):
+    return OffTrackLog(ts="2026-08-01T11:00", duration_min=dur, reason=reason, into_task_min=into)
+
+
+def test_focus_span_starts_as_unproven_default():
+    p = Profile()
+    assert p.focus_span_min == 120 and p.focus_evidence == 0
+
+
+def test_long_session_that_went_well_raises_span_and_counts_as_evidence():
+    p = Profile()
+    apply_all_signals(p, refl(RC.NAILED, 180, 170))
+    assert p.focus_span_min > 120 and p.focus_evidence == 1
+
+
+def test_short_success_proves_nothing_about_long_stretches():
+    p = Profile()
+    for _ in range(10):
+        apply_all_signals(p, refl(RC.NAILED, 45, 45))
+    assert p.focus_span_min == 120 and p.focus_evidence == 0
+
+
+@pytest.mark.parametrize("choice", [RC.HARDER, RC.OUTLIER, RC.INTERRUPTED, RC.GAP])
+def test_only_a_clean_finish_counts_as_focus_success(choice):
+    p = Profile()
+    apply_all_signals(p, refl(choice, 240, 240))
+    assert p.focus_evidence == 0 and p.focus_span_min == 120
+
+
+def test_non_focus_categories_never_move_the_span():
+    p = Profile()
+    for cat in ("admin", "physical", "social"):
+        apply_all_signals(p, refl(RC.NAILED, 240, 230, cat=cat))
+    assert p.focus_evidence == 0
+
+
+def test_labelled_focus_break_lowers_span():
+    p = Profile()
+    add_off_track(p, brk("couldnt_focus", 60))
+    assert p.focus_span_min == 108 and p.focus_evidence == 1
+    for _ in range(30):
+        add_off_track(p, brk("doomscrolled", 60))
+    assert 60 <= p.focus_span_min <= 66          # converges toward where focus actually broke
+
+
+@pytest.mark.parametrize("log", [
+    brk("couldnt_focus", 10),      # lapse right at the start is distraction, not fatigue
+    brk("medical", 90),            # emergency: excluded from learning entirely
+    brk("break", 90),              # a healthy break is not a failure
+    brk("couldnt_focus", None),    # no idea when in the session it happened
+])
+def test_these_off_track_logs_do_not_touch_focus_span(log):
+    p = Profile()
+    add_off_track(p, log)
+    assert p.focus_span_min == 120 and p.focus_evidence == 0
+
+
+def test_focus_span_stays_in_bounds_and_break_never_raises_it():
+    p = Profile()
+    for _ in range(100):
+        add_off_track(p, brk("couldnt_focus", 25))
+    assert p.focus_span_min >= FOCUS_SPAN_MIN
+    p2 = Profile(); p2.focus_span_min = 100
+    add_off_track(p2, brk("couldnt_focus", 400))   # breaking late means focus held; must not raise
+    assert p2.focus_span_min == 100
+    p3 = Profile()
+    for _ in range(100):
+        apply_all_signals(p3, refl(RC.NAILED, 900, 900))
+    assert p3.focus_span_min <= FOCUS_SPAN_MAX
+
+
+def test_focus_state_survives_save_load():
+    p = Profile()
+    add_off_track(p, brk("couldnt_focus", 60))
+    q = Profile.from_dict(p.to_dict())
+    assert (q.focus_span_min, q.focus_evidence) == (p.focus_span_min, p.focus_evidence)
