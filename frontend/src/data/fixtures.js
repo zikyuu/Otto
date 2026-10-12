@@ -8,7 +8,7 @@ export const NOW_TASKS = [
 export const GOALS = [
   {
     id: 'rag', title: 'Ship a production RAG app', cat: 'LLM ENGINEERING', tag: 'skill',
-    pct: 40, label: '40%', accent: '#A8703E', subnote: '2 of 5 steps done',
+    pct: 40, label: '40%', accent: '#4C7656', subnote: '2 of 5 steps done',
     direction: "You're spending time on syntax — these roles test retrieval quality and evals.",
     date: 'Updated 24 Jun 2026',
     sources: [
@@ -26,7 +26,7 @@ export const GOALS = [
   },
   {
     id: 'sd', title: 'Pass a system-design interview', cat: 'SKILL GAP', tag: 'skill',
-    pct: 25, label: '25%', accent: '#A8703E', subnote: '1 of 4 steps done',
+    pct: 25, label: '25%', accent: '#4C7656', subnote: '1 of 4 steps done',
     direction: "You're memorizing components — interviews test tradeoff reasoning out loud.",
     date: 'Updated 22 Jun 2026',
     sources: [
@@ -42,7 +42,7 @@ export const GOALS = [
   },
   {
     id: 'lc', title: 'Finish Blind 75', cat: 'INTERVIEW PREP', tag: 'skill',
-    pct: 43, label: '32/75', accent: '#A8703E', subnote: '32 of 75 solved',
+    pct: 43, label: '32/75', accent: '#4C7656', subnote: '32 of 75 solved',
     direction: "You're grinding easy arrays — Blind 75 weights trees & DP more heavily.",
     date: 'Updated 25 Jun 2026',
     sources: [
@@ -59,7 +59,7 @@ export const GOALS = [
   },
   {
     id: 'fit', title: '72 kg → 67 kg', cat: 'WELLBEING', tag: 'life',
-    pct: 36, label: '1.8 / 5 kg', accent: '#6BBF95', subnote: '1.8 kg of 5',
+    pct: 36, label: '1.8 / 5 kg', accent: '#6FA079', subnote: '1.8 kg of 5',
     direction: "You're weighing in daily — consistency of steps moves this more than the scale.",
     date: 'Updated 26 Jun 2026',
     sources: [
@@ -75,7 +75,7 @@ export const GOALS = [
   },
   {
     id: 'reel', title: 'Edit & publish 5 reels', cat: 'CREATIVE', tag: 'life',
-    pct: 20, label: '1/5', accent: '#6BBF95', subnote: '1 of 5 published',
+    pct: 20, label: '1/5', accent: '#6FA079', subnote: '1 of 5 published',
     direction: "You're over-editing one reel — shipping volume teaches faster than polish.",
     date: 'Updated 21 Jun 2026',
     sources: [
@@ -99,20 +99,21 @@ export const GOALS = [
 // up across the whole calendar.
 // ---------------------------------------------------------------------------
 export const CATEGORY_COLORS = {
-  'llm':           { bg:'#DDEAFF', accent:'#4373D6', text:'#1F49A8', label:'LLM / RAG'     },
-  'leetcode':      { bg:'#D8F5E4', accent:'#32A85C', text:'#15693A', label:'LeetCode'       },
-  'interview':     { bg:'#FFE2E2', accent:'#D44848', text:'#9E2020', label:'Interview'       },
-  'gym':           { bg:'#FFE6D0', accent:'#E07030', text:'#A04010', label:'Gym / Health'   },
-  'social':        { bg:'#FFF6CC', accent:'#C9980A', text:'#7A5B00', label:'Social'         },
-  'leisure':       { bg:'#EDE0FF', accent:'#8450D6', text:'#522AAA', label:'Leisure'        },
-  'system-design': { bg:'#E8E2FF', accent:'#6B50D6', text:'#3D2AAA', label:'System Design'  },
-  'admin':         { bg:'#EEEBE6', accent:'#8C7E6A', text:'#4A3E30', label:'Admin'          },
-  'life':          { bg:'#FFE6D0', accent:'#E07030', text:'#A04010', label:'Life'           },
-  'deep work':     { bg:'#DDEAFF', accent:'#4373D6', text:'#1F49A8', label:'Deep Work'      },
+  'llm':           { bg:'#E1E9EA', accent:'#5B7F8F', text:'#33505D', label:'LLM / RAG'     },
+  'leetcode':      { bg:'#E0EBD6', accent:'#5E8A4E', text:'#385A2C', label:'LeetCode'       },
+  'interview':     { bg:'#F1DCCF', accent:'#BC6A47', text:'#7A381D', label:'Interview'       },
+  'gym':           { bg:'#F4E3C3', accent:'#C08A2B', text:'#734D0E', label:'Gym / Health'   },
+  'social':        { bg:'#F4EBB9', accent:'#A98F1C', text:'#645406', label:'Social'         },
+  'leisure':       { bg:'#E8DFEC', accent:'#8C6FA0', text:'#563D69', label:'Leisure'        },
+  'system-design': { bg:'#DCE2EE', accent:'#5F6FA8', text:'#374479', label:'System Design'  },
+  'admin':         { bg:'#EAE4D0', accent:'#8C876B', text:'#4C4834', label:'Admin'          },
+  'life':          { bg:'#F4E3C3', accent:'#C08A2B', text:'#734D0E', label:'Life'           },
+  'deep_work':     { bg:'#E1E9EA', accent:'#5B7F8F', text:'#33505D', label:'Deep Work'      },
+  'deep work':     { bg:'#E1E9EA', accent:'#5B7F8F', text:'#33505D', label:'Deep Work'      },
 };
 
 // Fallback for unknown categories
-export const DEFAULT_CAT_COLOR = { bg:'#EEEBE6', accent:'#8C7E6A', text:'#4A3E30', label:'Other' };
+export const DEFAULT_CAT_COLOR = { bg:'#EAE4D0', accent:'#8C876B', text:'#4C4834', label:'Other' };
 
 // ---------------------------------------------------------------------------
 // Calendar events
@@ -126,9 +127,10 @@ export const DEFAULT_CAT_COLOR = { bg:'#EEEBE6', accent:'#8C7E6A', text:'#4A3E30
 // Map Block[] + Task[] → CalEvent[]: frontendDay = block.day + 22 (0-indexed Mon-Sun)
 // ---------------------------------------------------------------------------
 // Week of Aug 4–10 2026 (Mon=4, Tue=5, Wed=6, Thu=7, Fri=8, Sat=9, Sun=10)
-export const INITIAL_EVENTS = [
+const RAW_EVENTS = [
   // Monday Aug 4
-  { id:'e1',  title:'RAG pipeline design',         day:4,  startMin:9*60,     durationMin:90, category:'llm',           fixed:false },
+  { id:'e1',  title:'RAG pipeline design',         day:4,  startMin:9*60,     durationMin:90, category:'llm',           fixed:false,
+    subtasks:[{ id:'e1a', name:'Pick a chunking strategy', minutes:45 }, { id:'e1b', name:'Wire up retrieval', minutes:45 }] },
   { id:'e2',  title:'Reply to recruiters',          day:4,  startMin:11*60,    durationMin:15, category:'admin',         fixed:false },
   // Tuesday Aug 5
   { id:'e3',  title:'System design mock',           day:5,  startMin:10*60,    durationMin:60, category:'interview',     fixed:true  },
@@ -146,19 +148,78 @@ export const INITIAL_EVENTS = [
   { id:'e11', title:'Add embeddings + pgvector',    day:9,  startMin:10*60,    durationMin:45, category:'llm',           fixed:false },
   { id:'e12', title:'Daily LeetCode',               day:9,  startMin:11*60,    durationMin:20, category:'leetcode',      fixed:false },
   { id:'e13', title:'Evening walk · 8k steps',      day:9,  startMin:18*60+30, durationMin:30, category:'gym',           fixed:false },
+  // A thesis chapter Otto split into three sessions: research 120m, intro 60m, body 90m
+  { id:'th#1', title:'Write thesis chapter (1/3)', base_title:'Write thesis chapter', split_of:'th', session:1, sessions_total:3, day:6, startMin:14*60, durationMin:90, category:'llm', fixed:false,
+    subtasks:[{ id:'r_0', name:'Research', minutes:90, base_id:'r', base_name:'Research', base_minutes:120, order:1 }] },
+  { id:'th#2', title:'Write thesis chapter (2/3)', base_title:'Write thesis chapter', split_of:'th', session:2, sessions_total:3, day:7, startMin:10*60+30, durationMin:90, category:'llm', fixed:false,
+    subtasks:[{ id:'r_1', name:'Research', minutes:30, base_id:'r', base_name:'Research', base_minutes:120, order:1 }, { id:'i_1', name:'Write intro', minutes:60, base_id:'i', base_name:'Write intro', base_minutes:60, order:2 }] },
+  { id:'th#3', title:'Write thesis chapter (3/3)', base_title:'Write thesis chapter', split_of:'th', session:3, sessions_total:3, day:8, startMin:13*60, durationMin:90, category:'llm', fixed:false,
+    subtasks:[{ id:'b_2', name:'Write the body', minutes:90, base_id:'b', base_name:'Write the body', base_minutes:90, order:3 }] },
   // Sunday Aug 10
   { id:'e14', title:'Meal prep',                    day:10, startMin:12*60,    durationMin:45, category:'life',          fixed:false },
   { id:'e15', title:'Week review + next plan',      day:10, startMin:16*60,    durationMin:30, category:'admin',         fixed:false },
 ];
 
+// The mock week is re-dated onto the current week (Mon = fixture day 4) so the calendar opens on something real.
+// Late in the week (Fri-Sun) most of it would already be over, so the demo week is next week's.
+export const DEMO_WEEK_OFFSET = (() => { const d = new Date().getDay(); return d === 0 || d >= 5 ? 1 : 0; })();
+function currentWeekEvents(raw) {
+  const t = new Date();
+  const monday = new Date(t.getFullYear(), t.getMonth(), t.getDate() - ((t.getDay() + 6) % 7) + 7 * DEMO_WEEK_OFFSET);
+  const at = i => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // deadline_in_days: a deadline that many days after the event's own date, so the demo never goes stale
+  return raw.map(({ deadline_in_days, ...e }) => ({
+    ...e, day: at(e.day - 4).getDate(),
+    ...(deadline_in_days != null ? { deadline_iso: iso(at(e.day - 4 + deadline_in_days)), hard_deadline: true } : {}),
+  }));
+}
+// More to play with: the week before (history) and the week after (what is coming), same fixture-day scheme
+// (Mon of the demo week = 4, so the week after starts at 11 and the week before at -3).
+const RAW_NEXT = [
+  { id:'n1',  title:'Mock interview prep',           day:11, startMin:14*60,    durationMin:90,  category:'interview',     fixed:false, non_negotiable:true, deadline_in_days:3 },
+  { id:'n2',  title:'Retrieval pipeline build',      day:11, startMin:16*60+30, durationMin:150, category:'llm',           fixed:false,
+    subtasks:[{ id:'s1', name:'Chunking strategy', minutes:50, order:1 }, { id:'s2', name:'Hybrid search', minutes:60, order:2 }, { id:'s3', name:'Rerank + test', minutes:40, order:3 }], order_specific:true },
+  { id:'n3',  title:'Team standup',                  day:12, startMin:10*60,    durationMin:30,  category:'social',        fixed:true },
+  { id:'n4',  title:'System design: caching',        day:12, startMin:14*60,    durationMin:75,  category:'system-design', fixed:false },
+  { id:'n5',  title:'LeetCode: trees',               day:13, startMin:15*60,    durationMin:60,  category:'leetcode',      fixed:false },
+  { id:'n6',  title:'Gym session',                   day:13, startMin:9*60,     durationMin:60,  category:'gym',           fixed:false },
+  { id:'n7',  title:'Recruiter screen: Stripe',      day:14, startMin:11*60,    durationMin:45,  category:'interview',     fixed:true },
+  { id:'n8',  title:'Evals harness',                 day:14, startMin:15*60,    durationMin:120, category:'llm',           fixed:false },
+  { id:'n9',  title:'Gym session',                   day:15, startMin:9*60,     durationMin:60,  category:'gym',           fixed:false },
+  { id:'n10', title:'Apply to 4 roles',              day:15, startMin:11*60,    durationMin:60,  category:'admin',         fixed:false },
+  { id:'n11', title:'Dinner with Mei',               day:15, startMin:19*60,    durationMin:120, category:'social',        fixed:true },
+  { id:'n12', title:'Edit reel #2',                  day:16, startMin:13*60,    durationMin:90,  category:'leisure',       fixed:false },
+  { id:'n13', title:'Laundry + groceries',           day:16, startMin:17*60,    durationMin:60,  category:'life',          fixed:false },
+];
+const RAW_PREV = [
+  { id:'p1', title:'Karpathy: build GPT, part 3', day:-3, startMin:15*60,    durationMin:120, category:'llm',      fixed:false },
+  { id:'p2', title:'Gym session',                 day:-3, startMin:9*60,     durationMin:60,  category:'gym',      fixed:false },
+  { id:'p3', title:'LeetCode: sliding window',    day:-2, startMin:15*60,    durationMin:60,  category:'leetcode', fixed:false },
+  { id:'p4', title:'Reply to recruiters',         day:-2, startMin:11*60,    durationMin:20,  category:'admin',    fixed:false },
+  { id:'p5', title:'1:1 with manager',            day:-1, startMin:10*60,    durationMin:45,  category:'social',   fixed:true },
+  { id:'p6', title:'System design: URL shortener',day:-1, startMin:14*60+30, durationMin:90,  category:'system-design', fixed:false },
+  { id:'p7', title:'Gym session',                 day:0,  startMin:9*60,     durationMin:60,  category:'gym',      fixed:false },
+  { id:'p8', title:'Embeddings experiments',      day:0,  startMin:15*60,    durationMin:105, category:'llm',      fixed:false,
+    subtasks:[{ id:'p8a', name:'Compare embedding models', minutes:60 }, { id:'p8b', name:'Build the index', minutes:45 }] },
+  { id:'p9', title:'Meal prep',                   day:2,  startMin:12*60,    durationMin:45,  category:'life',     fixed:false },
+];
+
+export const INITIAL_EVENTS = [...currentWeekEvents(RAW_PREV), ...currentWeekEvents(RAW_EVENTS), ...currentWeekEvents(RAW_NEXT)].map(e =>
+  e.id === 'e8'  ? { ...e, prereq_ids: ['e7'] } :                    // ordered: onsite prep follows the LeetCode set
+  e.id === 'e11' ? { ...e, grouped_with: ['e12'] } :                 // grouped: embeddings + daily LeetCode
+  e.id === 'e12' ? { ...e, grouped_with: ['e11'] } :
+  e.id === 'n2'  ? { ...e, prereq_ids: ['n4'] } :                    // retrieval build waits for the caching study
+  e.id === 'n8'  ? { ...e, prereq_ids: ['n2'] } : e);                // evals follow the retrieval build
+
 export const BUSY_DAYS = { 2:1,4:2,9:1,11:1,16:2,18:1,23:1,24:2,25:1,26:1,27:2,29:1 };
 
 export const WEEK_CHIPS = {
-  23: [['#A8703E','RAG · 45m']],
-  24: [['#ECA94E','LeetCode']],
-  26: [['#6BBF95','Gym']],
-  27: [['#A8703E','Embeddings'],['#6BBF95','Walk'],['#ECA94E','LeetCode · moved']],
-  28: [['#6BBF95','Meal prep']],
+  23: [['#4C7656','RAG · 45m']],
+  24: [['#D2A04B','LeetCode']],
+  26: [['#6FA079','Gym']],
+  27: [['#4C7656','Embeddings'],['#6FA079','Walk'],['#D2A04B','LeetCode · moved']],
+  28: [['#6FA079','Meal prep']],
 };
 
 export const BAR_DATA = [
