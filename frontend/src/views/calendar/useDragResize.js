@@ -35,8 +35,7 @@ export function useDragResize({
     if (!gridRef.current) return;
     gridRef.current.setPointerCapture(e.pointerId);
     const rect        = gridRef.current.getBoundingClientRect();
-    const scrollTop   = scrollRef.current?.scrollTop || 0;
-    const grabOffsetY = (e.clientY - rect.top + scrollTop) - (ev.startMin - DAY_START) * PX_PER_MIN;
+    const grabOffsetY = (e.clientY - rect.top) - (ev.startMin - DAY_START) * PX_PER_MIN;
     dragRef.current = {
       id: ev.id, grabOffsetY, duration: ev.durationMin,
       origDay: ev.day, origStart: ev.startMin,
@@ -78,14 +77,25 @@ export function useDragResize({
     if (!gridRef.current) return;
     gridRef.current.setPointerCapture(e.pointerId);
     const rect      = gridRef.current.getBoundingClientRect();
-    const scrollTop = scrollRef.current?.scrollTop || 0;
-    const grabOffsetY = (e.clientY - rect.top + scrollTop) - (draftBlock.startMin - DAY_START) * PX_PER_MIN;
+    const grabOffsetY = (e.clientY - rect.top) - (draftBlock.startMin - DAY_START) * PX_PER_MIN;
     resizeRef.current = {
       kind: 'draftMove',
       grabOffsetY,
       duration: newTaskDraft.duration_planned,
     };
     setIsDraftMoving(true);
+  }
+
+  // Where a dragged event would land for this pointer position.
+  function dragTarget(e) {
+    const dr        = dragRef.current;
+    const rect      = gridRef.current.getBoundingClientRect();
+    const colW      = rect.width / weekDayNums.length;
+    const colIdx    = Math.max(0, Math.min(weekDayNums.length - 1, Math.floor((e.clientX - rect.left) / colW)));
+    const day       = weekDayNums[colIdx];
+    const relY      = e.clientY - rect.top - dr.grabOffsetY;
+    const startMin  = Math.max(DAY_START, Math.min(DAY_END - dr.duration, snapMin(DAY_START + relY / PX_PER_MIN)));
+    return { day, startMin, blocked: hasFixedConflict(eventsRef.current, dr.id, day, startMin, dr.duration) };
   }
 
   // ── Pointer move ──────────────────────────────────────────────────────────
@@ -96,32 +106,25 @@ export function useDragResize({
     rafIdRef.current = requestAnimationFrame(() => {
       if (!gridRef.current) return;
       const rect      = gridRef.current.getBoundingClientRect();
-      const scrollTop = scrollRef.current?.scrollTop || 0;
 
       if (dragRef.current) {
-        const dr     = dragRef.current;
-        const colW   = rect.width / 7;
-        const colIdx = Math.max(0, Math.min(6, Math.floor((e.clientX - rect.left) / colW)));
-        const day    = weekDayNums[colIdx];
-        const relY   = e.clientY - rect.top + scrollTop - dr.grabOffsetY;
-        const clamped = Math.max(DAY_START, Math.min(DAY_END - dr.duration, snapMin(DAY_START + relY / PX_PER_MIN)));
-        const blocked = hasFixedConflict(eventsRef.current, dr.id, day, clamped, dr.duration);
-        const prev    = posRef.current;
-        if (!prev || prev.day !== day || prev.startMin !== clamped || prev.blocked !== blocked) {
-          posRef.current = { day, startMin: clamped, blocked };
-          setDragPos({ day, startMin: clamped, blocked });
+        const next = dragTarget(e);
+        const prev = posRef.current;
+        if (!prev || prev.day !== next.day || prev.startMin !== next.startMin || prev.blocked !== next.blocked) {
+          posRef.current = next;
+          setDragPos(next);
         }
         return;
       }
 
       if (resizeRef.current) {
         const rz       = resizeRef.current;
-        const relY     = e.clientY - rect.top + scrollTop;
+        const relY     = e.clientY - rect.top;
         const mouseMin = snapMin(DAY_START + relY / PX_PER_MIN);
 
         if (rz.kind === 'draftMove') {
-          const colW   = rect.width / 7;
-          const colIdx = Math.max(0, Math.min(6, Math.floor((e.clientX - rect.left) / colW)));
+          const colW   = rect.width / weekDayNums.length;
+          const colIdx = Math.max(0, Math.min(weekDayNums.length - 1, Math.floor((e.clientX - rect.left) / colW)));
           const day    = weekDayNums[colIdx];
           const newStart = Math.max(DAY_START, Math.min(DAY_END - rz.duration,
             snapMin(DAY_START + (relY - rz.grabOffsetY) / PX_PER_MIN)));
@@ -161,7 +164,8 @@ export function useDragResize({
     setResizingTopId(null);
     setIsDraftMoving(false);
     const dr  = dragRef.current;
-    const pos = posRef.current;
+    // the last animation frame may not have run yet (a quick flick): take the position from the release itself
+    const pos = dr && gridRef.current ? (posRef.current = dragTarget(e)) : posRef.current;
     if (dr && pos) {
       if (pos.blocked) {
         dragRef.current = null; posRef.current = null; setDragPos(null);
@@ -190,8 +194,11 @@ export function useDragResize({
     setDragPos(null); setResizingTopId(null); setIsDraftMoving(false);
   }
 
+  // abandon an in-flight drag without moving anything (a long press turned out not to be a drag)
+  function cancelDrag() { handlePointerCancel(); }
+
   return {
-    dragRef, dragPos, resizingTopId, isDraftMoving,
+    cancelDrag, dragRef, dragPos, resizingTopId, isDraftMoving,
     startDrag, startResize, startDraftResize, startDraftMove,
     handlePointerMove, handlePointerUp, handlePointerCancel,
   };

@@ -32,10 +32,32 @@ export function getWeekDates(offsetWeeks = 0) {
   });
 }
 
+// `count` consecutive days starting at the Monday `offsetWeeks` away (7 = one week, 14 = two).
+export function getDays(offsetWeeks = 0, count = 7) {
+  const first = getWeekDates(offsetWeeks)[0];
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(first);
+    d.setDate(first.getDate() + i);
+    return d;
+  });
+}
+
+export function fmtDur(m) {
+  const h = Math.floor(m / 60), r = Math.round(m % 60);
+  return h === 0 ? `${r}m` : r === 0 ? `${h}h` : `${h}h ${r}m`;
+}
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+export function monthLabel(offsetMonths = 0) {
+  const t = new Date();
+  const d = new Date(t.getFullYear(), t.getMonth() + offsetMonths, 1);
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 // "Jun 2026" or "Jun – Jul 2026" if the week spans two months
 export function weekRangeLabel(weekDates) {
   const first = weekDates[0];
-  const last  = weekDates[6];
+  const last  = weekDates[weekDates.length - 1];
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   if (first.getMonth() === last.getMonth()) {
     return `${MONTHS[first.getMonth()]} ${first.getFullYear()}`;
