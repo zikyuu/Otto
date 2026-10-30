@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   progressPct, expectedPct, cumulativePct, remainingHours, requiredPerWeek, projectedFinish, statusOf, plannedCurve, actualCurve,
-  toggleMilestone, toggleSubtask, addMilestone, logDetour, insights, reviewPayload, daysBetween, addDays,
+  toggleMilestone, toggleSubtask, addMilestone, logDetour, insights, reviewPayload, daysBetween, addDays, daysBehind,
 } from './goalMath.js';
 
 const m = (id, effort_h, due, extra = {}) => ({ id, title: id, effort_h, due, done: false, ...extra });
@@ -101,10 +101,25 @@ test('finishing the last subtask finishes the milestone; reopening one reopens i
   assert.equal(g.milestones[0].done, false);
 });
 
-test('detours are logged newest first and show up in the insights', () => {
-  const g = logDetour(goal(), { type: 'roadblock', text: 'laptop died', impact_days: 4, date: '2026-10-02' });
-  assert.equal(g.detours[0].text, 'laptop died');
-  assert.ok(insights(g, '2026-10-05').some(i => /1 detour cost about 4 days/.test(i.text)));
+test('a detour is logged with a kind and a sentence: no day count is asked for or stored', () => {
+  const g = logDetour(goal(), { type: 'roadblock', text: 'laptop died', date: '2026-10-02' });
+  assert.deepEqual(g.detours[0], { date: '2026-10-02', type: 'roadblock', text: 'laptop died' });
+  assert.equal(logDetour(g, { type: 'sidetrack', text: 'tutorial rabbit hole', date: '2026-10-05' }).detours[0].text, 'tutorial rabbit hole');   // newest first
+});
+
+test('days behind is read off the plan: when did the plan reach today\'s progress?', () => {
+  const done = goal({ milestones: [m('a', 10, '2026-10-01', { done: true }), m('b', 10, '2026-11-01'), m('c', 20, '2026-12-01')] });   // 25% = what the plan wanted by 1 Oct
+  assert.equal(daysBehind(done, '2026-10-11'), 10);
+  assert.equal(daysBehind(done, '2026-10-01'), 0);
+  assert.equal(daysBehind(done, '2026-09-20'), 0);                          // ahead of plan is not "behind"
+  assert.equal(daysBehind(goal(), '2026-09-11'), 10);                       // nothing done: behind by the days since the start
+});
+
+test('a logged detour shows the delay it actually caused, not a number somebody typed', () => {
+  const g = logDetour(goal({ milestones: [m('a', 10, '2026-10-01', { done: true }), m('b', 10, '2026-11-01'), m('c', 20, '2026-12-01')] }), { type: 'roadblock', text: 'laptop died', date: '2026-10-02' });
+  assert.ok(insights(g, '2026-10-11').some(i => /1 detour logged\. Against the original plan you are about 10 days behind/.test(i.text)));
+  const fine = logDetour(goal({ milestones: [m('a', 10, '2026-10-01', { done: true }), m('b', 10, '2026-11-01'), m('c', 20, '2026-12-01')] }), { type: 'sidetrack', text: 'x', date: '2026-09-10' });
+  assert.ok(insights(fine, '2026-09-20').some(i => /still on the original plan/.test(i.text)));
 });
 
 test('insights are plain sentences with a tone', () => {
@@ -119,4 +134,5 @@ test('the review payload carries the computed numbers and per-milestone cumulati
   assert.equal(p.progress_pct, 0);
   assert.deepEqual(p.milestones.map(x => x.pct_when_done), [25, 50, 100]);
   assert.equal(p.status, 'behind');
+  assert.equal(p.days_behind, 30);                                         // nothing done 30 days in
 });

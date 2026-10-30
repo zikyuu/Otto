@@ -4,7 +4,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 export const shortDate = iso => { const [, m, d] = iso.split('-').map(Number); return `${d} ${MONTHS[m - 1]}`; };
 
 const W = 440, H = 176, L = 36, R = 16, T = 14, B = 28;
-const TONE = { good: '#3F6B49', warn: '#B98532', bad: '#B9573F' };
+const TONE = { good: '#4E5C36', warn: '#8A6A2F', bad: '#A5543F' };
 
 // Planned against actual. The dashed line is what the plan said; the solid one is what happened;
 // a dotted tail shows where the current pace ends up if that is later than the target.

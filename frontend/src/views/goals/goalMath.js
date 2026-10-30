@@ -105,7 +105,23 @@ export function statusOf(g, today) {
   return 'on_track';
 }
 
-export const detourDays = g => (g.detours || []).reduce((s, d) => s + (d.impact_days || 0), 0);
+// How far behind the original plan the goal is, in days, worked out from progress alone: the date on the planned curve where
+// the plan had reached today's progress, against today. A sidetrack or roadblock shows up here as the delay it actually
+// caused, so nobody has to count the days they lost. 0 when on or ahead of plan.
+export function daysBehind(g, today) {
+  const pts = plannedCurve(g);
+  const pct = progressPct(g);
+  let when = pts[pts.length - 1].date;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if (pct <= b.pct + 1e-9) {
+      const span = b.pct - a.pct;
+      when = addDays(a.date, Math.round((span > 0 ? (pct - a.pct) / span : 0) * daysBetween(a.date, b.date)));
+      break;
+    }
+  }
+  return Math.max(0, daysBetween(when, today));
+}
 
 // planned curve: 0% at the start, then the cumulative share at each milestone's due date
 export function plannedCurve(g) {
@@ -146,8 +162,9 @@ export function insights(g, today) {
     const late = daysBetween(g.target, fin);
     out.push({ tone: late > 0 ? 'warn' : 'good', text: late > 0 ? `At your pace so far you finish on ${fin}, ${late} days after the target.` : `At your pace so far you finish around ${fin}, in time.` });
   }
-  const lost = detourDays(g);
-  if (lost > 0) out.push({ tone: 'warn', text: `${(g.detours || []).length} detour${g.detours.length === 1 ? '' : 's'} cost about ${round1(lost)} days.` });
+  const n = (g.detours || []).length, behind = daysBehind(g, today);
+  if (n > 0 && behind > 0) out.push({ tone: 'warn', text: `${n} detour${n === 1 ? '' : 's'} logged. Against the original plan you are about ${behind} day${behind === 1 ? '' : 's'} behind.` });
+  else if (n > 0) out.push({ tone: 'good', text: `${n} detour${n === 1 ? '' : 's'} logged, and you are still on the original plan.` });
   return out;
 }
 
@@ -187,8 +204,8 @@ export function addSubtask(g, mid, text, id) {
     ? { ...m, done: false, done_on: undefined, subtasks: [...(m.subtasks || []), { id, t: text, done: false }] } : m)) };
 }
 
-export function logDetour(g, { type, text, impact_days, date }) {
-  return { ...g, detours: [{ date, type, text, impact_days: Math.max(Number(impact_days) || 0, 0) }, ...(g.detours || [])] };
+export function logDetour(g, { type, text, date }) {
+  return { ...g, detours: [{ date, type, text }, ...(g.detours || [])] };
 }
 
 // what the weekly review is shown about this goal
@@ -200,7 +217,8 @@ export function reviewPayload(g, today) {
     hours_remaining: round1(remainingHours(g)), hours_per_week: g.hours_per_week || 0,
     required_hours_per_week: Number.isFinite(requiredPerWeek(g, today)) ? round1(requiredPerWeek(g, today)) : 999,
     projected_finish: projectedFinish(g, today), recent_focus: g.recent_focus || '',
-    milestones: sorted.map(m => ({ title: m.title, effort_h: m.effort_h, due: m.due, done: !!m.done, pct_when_done: round1(cumulativePct(g, m.id)) })),
-    detours: (g.detours || []).map(d => ({ date: d.date, type: d.type, text: d.text, impact_days: d.impact_days })),
+    milestones: sorted.map(m => ({ id: String(m.id), title: m.title, effort_h: m.effort_h, due: m.due, done: !!m.done, pct_when_done: round1(cumulativePct(g, m.id)) })),
+    days_behind: daysBehind(g, today),
+    detours: (g.detours || []).map(d => ({ date: d.date, type: d.type, text: d.text })),
   };
 }

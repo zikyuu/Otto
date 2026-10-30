@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ProgressChart, { shortDate } from './ProgressChart.jsx';
+import { describeChange, overhaulSummary, splitByScale } from './goalChanges.js';
 import {
   progressPct, expectedPct, statusOf, STATUS, sortedMilestones, cumulativePct, milestoneFraction, daysLeft, remainingHours,
   insights, toggleMilestone, toggleSubtask, addMilestone, removeMilestone, addSubtask, logDetour, daysBetween,
@@ -7,9 +8,9 @@ import {
 import { IconCheck, IconCaret, IconPlus, IconTrash, IconBranch, IconStop, IconTurn, IconArrow } from '../calendar/Icons.jsx';
 
 export const TONES = {
-  good: { fg: '#3F6B49', bg: '#E0EBD3', bar: '#4C7656' },
-  warn: { fg: '#7D5A16', bg: '#F7EBCB', bar: '#C08A2B' },
-  bad:  { fg: '#8A3A26', bg: '#F3DDD2', bar: '#B9573F' },
+  good: { fg: '#4E5C36', bg: '#E4EAD3', bar: '#4E5C36' },
+  warn: { fg: '#8A6A2F', bg: '#F3E6C8', bar: '#8A6A2F' },
+  bad:  { fg: '#A5543F', bg: '#F3DDD2', bar: '#A5543F' },
 };
 const DETOUR = { sidetrack: { Icon: IconBranch, label: 'Sidetrack' }, roadblock: { Icon: IconStop, label: 'Roadblock' }, pivot: { Icon: IconTurn, label: 'Pivot' } };
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -53,7 +54,7 @@ function Milestone({ goal, m, today, onChange }) {
           {hasSubs && !m.done && <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{m.subtasks.filter(s => s.done).length}/{m.subtasks.length}</span>}
           <IconCaret size={13} style={{ color: 'var(--ink-4)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s var(--ease)', flexShrink: 0 }} />
         </button>
-        <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', width: 34, textAlign: 'right' }}>{fmtH(m.effort_h)}</span>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', width: 34, textAlign: 'right', whiteSpace: 'nowrap' }}>{m.logged_h > 0 && !m.done ? <span title={`${fmtH(m.logged_h)} logged from the calendar`}>{fmtH(m.logged_h)}/</span> : null}{fmtH(m.effort_h)}</span>
         <span className="mono" title="Where the whole goal stands once this is done" style={{ fontSize: 11, color: m.done ? 'var(--accent)' : 'var(--ink-2)', background: 'var(--surface-2)', borderRadius: 999, padding: '2px 8px', width: 56, textAlign: 'center' }}>{Math.round(cum)}%</span>
         <span className="mono" style={{ fontSize: 11, width: 52, textAlign: 'right', color: overdue ? TONES.bad.fg : 'var(--ink-3)', fontWeight: overdue ? 600 : 400 }}>{shortDate(m.due)}</span>
       </div>
@@ -64,6 +65,7 @@ function Milestone({ goal, m, today, onChange }) {
       )}
       {open && (
         <div style={{ padding: '0 12px 12px 44px', animation: 'fadeIn .15s var(--ease)' }}>
+          {m.logged_h > 0 && <p style={{ margin: '0 0 8px', fontSize: 12.5, color: 'var(--ink-3)' }}>{fmtH(m.logged_h)} of {fmtH(m.effort_h)} done in calendar sessions you tied to this step.</p>}
           {(m.subtasks || []).map(s => (
             <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
               <Check size={16} on={s.done} label={`Mark "${s.t}" ${s.done ? 'not done' : 'done'}`} onClick={() => onChange(toggleSubtask(goal, m.id, s.id, today))} />
@@ -81,7 +83,7 @@ function Milestone({ goal, m, today, onChange }) {
   );
 }
 
-const inputStyle = { flex: 1, minWidth: 0, height: 30, padding: '0 12px', borderRadius: 999, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12.5, color: 'var(--ink)', outline: 'none' };
+const inputStyle = { flex: 1, minWidth: 0, height: 30, padding: '0 12px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 12.5, color: 'var(--ink)', outline: 'none' };
 
 function AddMilestone({ goal, today, onChange }) {
   const [t, setT] = useState(''), [h, setH] = useState('2'), [due, setDue] = useState(goal.target);
@@ -100,10 +102,10 @@ function AddMilestone({ goal, today, onChange }) {
 }
 
 function Detours({ goal, today, onChange }) {
-  const [type, setType] = useState('sidetrack'), [text, setText] = useState(''), [days, setDays] = useState('1');
+  const [type, setType] = useState('sidetrack'), [text, setText] = useState('');
   return (
     <div>
-      {(goal.detours || []).length === 0 && <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--ink-3)' }}>Nothing logged. Note it when something knocks you off course.</p>}
+      {(goal.detours || []).length === 0 && <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--ink-3)' }}>Nothing logged. Note it when something knocks you off course. You do not need to count the days: Otto sees the delay in your progress.</p>}
       {(goal.detours || []).map((d, i) => {
         const { Icon, label } = DETOUR[d.type] || DETOUR.sidetrack;
         return (
@@ -113,19 +115,15 @@ function Detours({ goal, today, onChange }) {
               <div style={{ fontSize: 12.5, lineHeight: 1.4 }}>{d.text}</div>
               <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 2 }}>{label} · {shortDate(d.date)}</div>
             </div>
-            <span className="mono" style={{ fontSize: 11, color: TONES.warn.fg, whiteSpace: 'nowrap' }}>{d.impact_days ? `-${d.impact_days}d` : ''}</span>
           </div>
         );
       })}
-      <form onSubmit={e => { e.preventDefault(); if (text.trim()) { onChange(logDetour(goal, { type, text: text.trim(), impact_days: days, date: today })); setText(''); } }}
+      <form onSubmit={e => { e.preventDefault(); if (text.trim()) { onChange(logDetour(goal, { type, text: text.trim(), date: today })); setText(''); } }}
         style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
         <select value={type} onChange={e => setType(e.target.value)} aria-label="Kind of detour" style={{ ...inputStyle, flex: 'none', width: 108 }}>
           <option value="sidetrack">Sidetrack</option><option value="roadblock">Roadblock</option><option value="pivot">Pivot</option>
         </select>
         <input value={text} onChange={e => setText(e.target.value)} placeholder="What happened" aria-label="What happened" style={{ ...inputStyle, flex: '1 1 140px' }} />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--ink-3)' }}>
-          <input type="number" min="0" step="0.5" value={days} onChange={e => setDays(e.target.value)} aria-label="Days lost" style={{ ...inputStyle, flex: 'none', width: 56 }} />days lost
-        </label>
         <button className="btn" type="submit" disabled={!text.trim()}>Log</button>
       </form>
     </div>
@@ -135,7 +133,7 @@ function Detours({ goal, today, onChange }) {
 const sectionTitle = { fontSize: 11, fontWeight: 600, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--ink-3)', margin: '0 0 10px' };
 
 // advice: the wizard's last word on this goal (or undefined)
-export default function GoalRow({ goal, today, open, onToggle, onChange, advice, onApplyDate, index = 0 }) {
+export default function GoalRow({ goal, today, open, onToggle, onChange, advice, onApplyDate, onApplyChanges, index = 0 }) {
   const status = statusOf(goal, today), tone = STATUS[status].tone, t = TONES[tone];
   const pct = progressPct(goal), exp = expectedPct(goal, today);
   const left = daysLeft(goal, today);
@@ -213,12 +211,12 @@ export default function GoalRow({ goal, today, open, onToggle, onChange, advice,
             </section>
 
             {advice && (
-              <section aria-label="The wizard's advice" style={{ background: 'var(--surface)', border: `1px solid ${advice.verdict === 'impossible' ? '#E3B9A8' : 'var(--line)'}`, borderRadius: 16, padding: '14px 16px' }}>
+              <section aria-label="The wizard's advice" style={{ background: 'var(--surface)', border: `1px solid ${advice.verdict === 'impossible' ? '#E8C0B2' : 'var(--line)'}`, borderRadius: 12, padding: '14px 16px' }}>
                 <h3 style={{ ...sectionTitle, marginBottom: 6 }}>The wizard says</h3>
                 {advice.stale && <p style={{ margin: '0 0 8px', fontSize: 11.5, color: TONES.warn.fg, background: TONES.warn.bg, borderRadius: 8, padding: '5px 9px' }}>Written before your latest changes. Consult again to refresh it.</p>}
                 <p style={{ margin: 0, fontSize: 13, fontWeight: 500, lineHeight: 1.45, color: advice.verdict === 'impossible' ? TONES.bad.fg : 'var(--ink)' }}>{advice.headline}</p>
                 {advice.advice?.length > 0 && <ul style={{ margin: '8px 0 0', paddingLeft: 16, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>{advice.advice.map((a, i) => <li key={i}>{a}</li>)}</ul>}
-                {advice.reroute?.length > 0 && (
+                {advice.reroute?.length > 0 && !(advice.changes?.length > 0 && !advice.stale) && (
                   <div style={{ marginTop: 10 }}>
                     <div className="label-caps" style={{ marginBottom: 6 }}>Reroute</div>
                     {advice.reroute.map((r, i) => (
@@ -229,7 +227,15 @@ export default function GoalRow({ goal, today, open, onToggle, onChange, advice,
                     ))}
                   </div>
                 )}
-                {advice.suggested_target_date && advice.suggested_target_date !== goal.target && !advice.stale && (
+                {advice.changes?.length > 0 && !advice.stale && <ProposedChanges goal={goal} changes={advice.changes} onApply={onApplyChanges} />}
+                {advice.unapplied?.length > 0 && !advice.stale && (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="label-caps" style={{ marginBottom: 4 }}>Also mentioned</div>
+                    <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{advice.unapplied.map((u, i) => <li key={i}>{u}</li>)}</ul>
+                    <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--ink-3)' }}>Otto cannot apply these for you. Do them by hand if you agree.</p>
+                  </div>
+                )}
+                {!advice.changes?.length && advice.suggested_target_date && advice.suggested_target_date !== goal.target && !advice.stale && (
                   <button className="btn btn--primary" style={{ marginTop: 10 }} onClick={() => onApplyDate(advice.suggested_target_date)}>Move target to {shortDate(advice.suggested_target_date)}</button>
                 )}
               </section>
@@ -243,5 +249,56 @@ export default function GoalRow({ goal, today, open, onToggle, onChange, advice,
         </div>
       )}
     </div></li>
+  );
+}
+
+
+// What the wizard proposes to change. Otto never applies any of it by itself: a small change is one press on "Apply"; a big one
+// (a pivot, dropped work, a much later date) is shown in full with what would be replaced, and needs a deliberate approval.
+function ProposedChanges({ goal, changes, onApply }) {
+  const { minor, major } = splitByScale(changes);
+  const [review, setReview] = useState(false);
+  const [sure, setSure] = useState(false);
+  const sum = overhaulSummary(goal, major);
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="label-caps" style={{ marginBottom: 6 }}>Proposed changes</div>
+      <p style={{ margin: '0 0 8px', fontSize: 11.5, color: 'var(--ink-3)' }}>These are suggestions. Nothing changes until you press a button.</p>
+      {minor.map(c => (
+        <div key={c.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '7px 0', borderTop: '1px solid var(--line-soft)' }}>
+          <span style={{ flex: 1, fontSize: 12.5, lineHeight: 1.45 }}>{describeChange(goal, c)}{c.why && <span style={{ color: 'var(--ink-3)' }}> {c.why}</span>}</span>
+          <button className="btn" style={{ height: 28, flexShrink: 0 }} onClick={() => onApply([c])}>Apply</button>
+        </div>
+      ))}
+      {major.length > 0 && (
+        <div role="group" aria-label="A big change" style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: '#F9EDE4', boxShadow: 'inset 0 0 0 1px #E8C0B2' }}>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#8C4A33' }}>This changes the direction of the plan</p>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 16, fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-2)' }}>
+            {major.map(c => <li key={c.id}>{describeChange(goal, c)}{c.why && <span style={{ color: 'var(--ink-3)' }}> {c.why}</span>}</li>)}
+          </ul>
+          {!review ? (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button className="btn" onClick={() => setReview(true)}>Review what would change</button>
+            </div>
+          ) : (
+            <div style={{ marginTop: 10 }}>
+              {sum.retitle && <p style={{ margin: '0 0 4px', fontSize: 12.5 }}><strong>New title:</strong> {sum.retitle}</p>}
+              {(sum.replaced.length > 0 || sum.dropped.length > 0) && (
+                <p style={{ margin: '0 0 4px', fontSize: 12.5 }}><strong>Would be removed:</strong> {[...sum.replaced, ...sum.dropped].map(m => m.title).join(', ')}</p>
+              )}
+              {sum.added.length > 0 && <p style={{ margin: '0 0 6px', fontSize: 12.5 }}><strong>Would be added:</strong> {sum.added.map(m => `${m.title} (${m.effort_h}h, ${m.due})`).join(', ')}</p>}
+              <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--ink-3)' }}>Finished work stays. You can undo this right after.</p>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+                <input type="checkbox" checked={sure} onChange={e => setSure(e.target.checked)} /> I understand this changes my plan
+              </label>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button className="btn btn--primary" disabled={!sure} onClick={() => { onApply(major); setReview(false); setSure(false); }}>Approve and apply</button>
+                <button className="btn btn--ghost" onClick={() => { setReview(false); setSure(false); }}>Keep my plan</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
