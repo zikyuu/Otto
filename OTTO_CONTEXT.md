@@ -47,7 +47,7 @@ Otto/
         feasibility.py   "can this close at the user's real pace?" + forced tradeoff
         gaps.py          goal skill-gap -> tasks (Exa signal, SKILL_TASKS fallback)
       llm/extract.py     LLM: parse resume/JD, narrate, direction_review (edges only)
-      sources/adapters.py  ManualSource etc; Google Calendar / Exa job adapters are STUBS
+      sources/adapters.py  ManualSource, PasteJDSource; sources/gcal.py = Google Calendar (read-only OAuth, needs GOOGLE_CLIENT_ID/SECRET)
       demo_data/demo.json  seeded demo (key `time_blocks`, was `walls`)
       db_models.py, database.py   dead code (SQLAlchemy/Supabase); db_models imports a Base that doesn't exist. Renamed only.
     schema.sql           Supabase schema (renamed tables: time_blocks, task_completions)
@@ -193,19 +193,19 @@ Legend: DONE = built and working; BACKEND ONLY = engine/API exist, no UI; PARTIA
 ### 5.1 Learning signals (the "6 levels")
 | # | Signal | Status |
 |---|---|---|
-| 1 | User-stated rules from the weekly mascot chat (override everything) | BACKEND ONLY: structured rules via `/api/learning/stated-rule` pin parameters. Free-text -> rules (the chat) NOT BUILT |
-| 2 | Post-task reflection (after dragging the actual end time): nailed / harder / outlier ("just tired") / interrupted / fundamental gap | BACKEND ONLY |
-| 3 | Energy logs: a `+` button on the live timeline, 5 levels (energised, in the zone, neutral, tired, drained), optional, never nag | BACKEND ONLY |
-| 4 | Off-track block labels (doomscrolled, messages, couldn't focus, break; medical, family, work crisis) | BACKEND ONLY (endpoint feeds focus span; no UI) |
-| 5 | Actuals drag | BACKEND ONLY (`/api/learning/actual`); UI resize doesn't call it yet |
-| 6 | Algorithm-derived patterns | PARTIAL: gym-first, ramp-up, slump, recovery, planning bias, chronotype. Rest of 5.3 NOT BUILT |
+| 1 | User-stated rules from the weekly mascot chat (override everything) | DONE: `/api/chat/rules` turns free text into proposed rules (OpenAI, or a keyword reader without a key); the user ticks which to pin via `/api/chat/rules/apply` (`WeeklyChat.jsx`) |
+| 2 | Post-task reflection (after dragging the actual end time): nailed / harder / outlier / interrupted / gap | DONE: reflection panel, and dragging the end of a block that has begun calls `/api/learning/actual` (close to plan = recorded, otherwise the panel opens) |
+| 3 | Energy logs: a `+` button, 5 levels, optional, never nags | DONE: `EnergyTap` in the calendar toolbar and on Now; a tap soon after a meeting sends `after_meeting_min` |
+| 4 | Off-track block labels (doomscrolled, messages, couldn't focus, break; medical, family, work crisis) | DONE: "Off track" section of the event panel for blocks that have begun |
+| 5 | Actuals drag | DONE (see 2) |
+| 6 | Algorithm-derived patterns | DONE: gym-first, ramp-up, slump, recovery, planning bias, chronotype, and the nine in 5.3 (`engine/patterns.py`, `/api/patterns`, Stats "How you work"). They are shown and told to the weekly chat; the **scheduler does not act on the new ones yet** (KIV) |
 
 ### 5.2 Learned parameters
 `peak_window` DONE; `avg_velocity` per category DONE; `completion_rate` DONE (only used by feasibility); `focus_span_min` DONE (new); `planning_bias`, `post_meal_slump_min`, `ramp_up_min`, `recovery_after_meeting` (default 15) are now learned (BACKEND ONLY); `batching_preference` (default none) is user-set only; `gym_first` learned. Sleep window: scheduler respects it and `/api/profile/sleep-window` sets it, but the calendar grid is hard-coded 08:00-23:00 and there is no draggable sleep block (no UI).
 
 Cold-start defaults: peak 9-12, post-meal slump 45, planning bias 0.8, velocity deep_work 1.3 / admin 1.0 / creative 1.2 / physical 1.0 / social 1.0, ramp-up deep_work 15 / creative 10 / physical 5, focus span 120 (unproven until 3 observations).
 
-### 5.3 Behavioural metrics listed in the spec (all NOT BUILT except where noted above)
+### 5.3 Behavioural metrics listed in the spec (now computed: see 7.18; the first line is the original list)
 Core: morning vs night person, post-meal slump, over/under planner, energy curve, sleep-start effect. Derived: task-switching cost, activation energy, meeting hangover, deadline-proximity effect, recovery after hard tasks, decision-fatigue curve, streak sensitivity, weekend recharge, social drain vs recharge, unfinished-task anxiety. User-stated: any constraint they name in the weekly chat (e.g. "I can't get things done if I wake after 2pm").
 
 ### 5.4 Scheduler rules from the spec
@@ -216,12 +216,12 @@ Also DONE (second build): the spec priority formula; gym-first day pattern; max 
 - **Deadline buffer:** 30% (so a 10h task warns when only 13h free remain). DONE in `_has_tight_deadline` (needs real dates; calendar path passes `week_start`).
 - **Hard deadline vs "best done by":** hard wins; best-done-by only boosts priority. DONE (engine + popup).
 - **Feasibility + forced tradeoff** ("you can't do both, choose one"): DONE in the engine; the Feasibility/Tradeoff/Recovery screens are mock UI, not wired.
-- **Checklist carry-over** ("2 items unfinished, add to a new slot?"): NOT BUILT.
-- **Async task enrichment** (one batched LLM call per new task with >15 words, 3-5/week): NOT BUILT.
-- **Weekly reflection**: metrics dashboard first, then mascot chat; the single most valuable LLM call (about 1/week). NOT BUILT (`Stats.jsx` is mock).
+- **Checklist carry-over** ("2 items unfinished, add to a new slot?"): DONE. Events carry `checklist`; once a block is over with open items `CarryOver.jsx` asks once (new slot / Meatball Grinder / leave), recorded on `ev.carry_over`.
+- **Async task enrichment**: DONE. `POST /api/tasks/enrich`: one batched call for tasks over 15 words, 5 per week (kv `enrich.quota`), output clamped; fills gaps only, never over what the user typed; quiet without a key.
+- **Weekly reflection and drift review**: DONE. `/api/reflection/weekly` (metrics from stored signals + deterministic recap), `/narrate` (otter voice, optional LLM), drift snapshot/`ack`; `Stats.jsx` shows it and, when a learned parameter moved and 7 days passed, offers the weekly chat.
 - **Screen time**: web = tab-visibility API only (weak signal), iOS blocked, Android needs a permission, browser extension is the best real source. NOT BUILT (KIV).
 - **Event types**: fixed (DONE, lock icon), flexible (DONE), confirmed/tbc (dashed) NOT BUILT, travel buffer KIV.
-- **Google Calendar sync, Exa job-match adapter**: stubs.
+- **Google Calendar sync**: DONE but off until keys exist (see 7.11). **Exa was removed** (code, dependency, env var).
 - **Long-term goals across months**: Goals view is mock data; planner is single-week.
 
 ---
@@ -332,9 +332,9 @@ One checklist tracker per goal instead of cards. Each goal has milestones with a
 
 ---
 
-## 8. Not built: oversleep, Meatball Grinder UI, others (design detail kept for later)
+## 8. Design notes kept for reference (oversleep, Meatball Grinder, weekly chat and AAR are now built: see 7.11)
 
-- **Oversleep / late start**: triggered when the first login is 2h+ after the first planned event; slides up on app open. Options: (1) Reschedule from now (recommended): triage screen with tasks ranked by priority and a draggable "non-negotiable" line; above the line is placed in the remaining day, below goes to the Meatball Grinder. (2) Keep original plan (missed tasks as ghost blocks). (3) Write off today (fixed events stay, flexible tasks parked; optional "Protect tomorrow morning?"). After 3+ late starts in a week, surface it in the weekly reflection and offer to change the planned start. Each displaced task gets a triage choice: reschedule today / push tomorrow / grinder / drop (`OversleepTriage` enum). Recurring tasks get a "skip today's or reschedule?" micro-decision.
+- **Oversleep / late start**: triggered when the first login is 2h+ after the first planned event; slides up on app open. Options: (1) Reschedule from now (recommended): triage screen with tasks ranked by priority and a draggable "non-negotiable" line; above the line is placed in the remaining day, below goes to the Meatball Grinder. (2) Keep original plan (missed tasks as ghost blocks). (3) Write off today (fixed events stay, flexible tasks parked; optional "Protect tomorrow morning?"). After 3+ late starts in a week, surface it in the weekly reflection and offer to change the planned start. Each displaced task gets a triage choice: reschedule today / push tomorrow / grinder / drop: **built (7.18)**. Recurring tasks get a "skip today's or reschedule?" micro-decision: not built (KIV).
 - **Meatball Grinder UI**: list, "Find best slot" (one tap through the scheduler), drag into a free slot, age nudge after 5 days ("Keep / Delete / Someday"; Someday = no scheduling pressure). Engine already skips grinder tasks and returns them in `plan.meatball_grinder`; no endpoint to park/unpark.
 - **Weekly mascot chat**: free text -> LLM extracts structured rules -> `stated_rules` -> scheduler hard preferences. Adapts depth to the user (verbose gets follow-ups).
 - **AAR panel** (time-based, post-session) was mentioned as a separate component; not built.
@@ -347,7 +347,7 @@ One checklist tracker per goal instead of cards. Each goal has milestones with a
 
 **Backend only (needs UI)**: reflection prompt, energy `+` button, off-track labelling, meatball grinder park/unpark, feasibility/tradeoff screens.
 
-**Not built**: oversleep flow, weekly chat/stated rules, node linking, selection-mode reschedule, animation layer, checklist carry-over, task enrichment, tab-visibility signal, draggable sleep block, 2-week view, month-scale goal planning, weekly drift-review trigger, Google Calendar, persistence of events (calendar events live only in React state; reload loses them).
+**Not built**: see the KIV list in section 14 (tab-visibility screen-time signal, confirmed/tbc event type, month-scale goal planning, and the rest).
 
 **Needs your check**: discard-confirmation on closing the popup; order-specific grouping/reorder were not re-tested after the allocator rewrite.
 
@@ -392,3 +392,105 @@ Branch `shianne-(revamp)`. Committed earlier: engine-only scheduler (`aedf36f re
 5. Weekly goal-drift review trigger (cache last review; skip if < 7 days).
 6. Polish pass with the taste skill.
 7. Deferred: node linking UI, oversleep flow, weekly chat, selection-mode reschedule + animation, 2-week view, month-scale planning.
+
+
+### 7.11 Fourth build: persistence and the remaining features
+
+- **Persistence.** `backend/app/kv.py` is a one-JSON-document-per-key store: Supabase table `otto_kv` (run `backend/migrations/001_otto_kv.sql` once) when `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set, otherwise `backend/data/kv.json`; a failing Supabase call falls back to the file. `GET /api/state` returns every `otto.*` key, `PUT/POST/DELETE /api/state/{key}`; server secrets use non-`otto.` keys and are never served. Frontend `persist.js` mirrors every `localStorage` write under `otto.` to the server (debounced) and `hydrate()`s before the first render (server wins; keys only the browser has are uploaded once). Calendar events live under `otto.events.v1`; goals, grinder and wizard keep their existing keys. The unused SQLAlchemy/Supabase "job prep" layer (`database.py`, `db_models.py`, `schema.sql`) was left untouched.
+- **Oversleep / late start** (`engine/oversleep.py`, `modals/Oversleep.jsx`): on the first open of the day, if the first planned event began 2h+ ago, a sheet offers reschedule from now (ranked list + draggable non-negotiable line; below it goes to the grinder), keep the plan (missed blocks become `ghost` chips), or write off today (optionally hold the best for tomorrow morning). Late starts are logged on the profile (`late_starts`); three in a week suggests a later planned start. "I overslept" on Now runs the same check on demand. API: `/api/oversleep/check`, `/api/oversleep/apply`.
+- **Feasibility / Tradeoff / Recovery** (`engine/week_check.py`): `/api/week-check` compares planned work at learned velocity with free time x planning bias; when over it names the two competing pieces (`trade`). Choosing one shrinks the other to half via `/api/week-check/downscope`. `/api/recovery` returns one thing to start and one to shrink. Now's amber banner only shows when the engine says the week is over.
+- **Weekly chat, reflection, drift**: see 5.1 and 5.5. Needs `OPENAI_API_KEY` for the LLM parts; every endpoint degrades to a deterministic answer without it. OpenAI calls now have a 25 s timeout.
+- **Calendar additions**: energy tap, off-track labels, actuals drag (`useDragResize` `onResizeEnd`), checklist (add in the event popup, tick in the panel) + carry-over, draggable sleep bands and a Sleep menu for hours beyond the grid (`SleepBands.jsx`, `sleepMath.js`, `/api/profile/sleep-window`), Meatball Grinder age nudge after 5 days (Keep / Delete / Someday, `grinderAge.js`), Google Calendar button (`GCalButton.jsx`, merge rule in `gcalSync.js`).
+- **Google Calendar**: read-only OAuth in `sources/gcal.py`. Create a Web OAuth client, add redirect URI `http://localhost:5173/api/gcal/callback` (or set `GOOGLE_REDIRECT_URI`), put `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `backend/.env`. Until then the button reads "not set up". Imported events are fixed with `source: "gcal"`; a sync replaces only those.
+- **Dev note**: `frontend/vite.config.js` reads `OTTO_API` to point the proxy at a backend on another port (port 8000 can be taken by another project).
+- **Fixed on the way**: the Now "+" form produced objects with no `day/startMin/durationMin`, which the scheduler rejects; it now creates a proper calendar block at the chosen slot.
+
+### 7.12 Forest-cabin restyle (sixth design pass; the flat minimalist attempt was dropped)
+
+Palette from the user's reference: pine `#202808`, kombu `#33432B`, dingley `#6A784D`, brandy `#DEC59E`, pale copper `#C4866D`; parchment surfaces tinted from brandy. Type: Fredoka (rounded, hand-lettered feel) for headings, buttons, nav and big numbers; Nunito for body text. No plain geometric sans. Double-bezel cards, pill buttons, scenic page banners, a wooden `.plaque` sign on the dark green sidebar, a `.sticky` yellow note. Layout borrows from the references: a row of big-number `StatCard`s (Now, Stats, Goals), a "this week" node timeline (`WeekNodes`), a sticky "current task" note, due-this-week list, workload bars by category. Old token names (`--forest`, `--sage-*`, `--amber-*`) are kept and now point at this palette; `--forest` is the dark fill (kombu). Stats shows an explicit card when the weekly report cannot be read (usually the backend is an old process or another app on port 8000: restart it).
+
+### 7.13 Home page (Now) cards
+
+`views/Now.jsx` composes pure, tested modules in `src/home/`: **Today's schedule** (`today.js`: "3 events, 2 tasks, 0 hard deadlines": events = locked blocks, tasks = flexible blocks not yet done; overdue counted apart), **Today, in order** (`DayList` in `components/HomeCards.jsx`: today's calendar blocks as checkboxes in time order; the current block ("now" / "up next") is highlighted with its subtasks, checklist and description; the others show a name until clicked; a flexible block whose time passed without a tick is struck through in red; ticking sets `ev.done` and feeds the completion rate; the buttons are **I started late** (late-start flow, re-plans what is left of today) and **I'm overwhelmed** (recovery: one thing to start, one to shrink)), **Remind me** (`reminders.js` + `capture.js`: one box that reads a deadline, "every month" and lengths from plain text, plus an optional date picker that wins over the words; checklist rows that only the cross deletes; repeating items move on when ticked; a pill opens the Meatball Grinder in the calendar via `sessionStorage['otto.openGrinder']`), **Deadline radar** (`radar.js`), **Wrap up the day** (`wrapUp.js`, from 17:00), **Goals that need time** (`goalNudge.js`): "Find time" opens the calendar in planning mode (`sessionStorage['otto.makeTime']`, two-week view): `/api/schedule` suggests sessions (`makeTime.js`), shown as dashed draggable blocks (`planDrag.js`) with everything else dimmed and a `PlanPanel` in the side panel; nothing is booked until "Book N sessions" (then the scheduler resolves clashes around them, with undo). The demo `NOW_TASKS` list is no longer shown on Home.
+
+### 7.14 How "Find time" decides, and the calendar page
+
+Sessions: `plan_sessions` cuts the shortfall into n = ceil(minutes x learned pace / learned focus span) equal sittings (a marathon block splits even with no evidence, using the default span). Times: the scheduler places one sitting per day when days allow, in the first free gap closest to the start the block asks for; `makeTime.js` asks for the start of the learned focus window (today if still ahead, otherwise tomorrow), so sittings land there unless a locked event, the deadline or the past is in the way. `tests/test_plan_time.py` checks these properties (sizes, hours add up, nothing on locked events or after the deadline, window preference). The plan panel states the same reasoning in words (`home/planWhy.js`: pace, focus span and how many sessions it was learned from, and per session why that time). The calendar page has no banner; the grid is full height (the page scrolls, day headers and the side panel stick), and the month view lists each day's events as chips. Remind-me deadlines can be changed by clicking the pill.
+
+### 7.15 Sleep hours, crunch work, linking, Home layout
+
+The calendar grid now shows the whole day (00:00 to 24:00); sleep hours are shaded ("Sleep, protected") and the page opens scrolled to the wake time. The scheduler never plans into sleep hours on its own. Two exceptions: (1) a person can drag any block into them; it is flagged `crunch` (shown with "sleep time") and later reschedules leave it alone (`calendar_bridge.locked`); (2) `calendar_bridge.reschedule_events` retries a block with a **hard deadline** that nothing else could fit, first stretching the day to midnight, then to 00:00 (peak-window rules relaxed), flags what landed out of hours as `crunch` and says so in the explanation (`tests/test_crunch.py`). Linking: dropping a link near an event now counts (12 px tolerance); dropping on empty space asks before opening the event creator. Home: Today's schedule lives inside the welcome banner; a "This week's load" card (planned time per day vs honest capacity) balances the left column. `GET /api/ai/status` says whether an LLM is connected; the weekly chat and the otter-voice recap use it, nothing else in scheduling or learning does.
+
+### 7.16 Reflection and goal review that change things (always with permission)
+
+**Weekly check-in** (`engine/chat.py`, `/api/chat/rules`): the model (or, with no key, keyword rules incl. `infer_rules`) gets the person's words plus the week's logged numbers and the settings Otto plans with now, and proposes adjustments from a fixed list of settings. Each is `source: said` (stated outright) or `inferred` (e.g. gave up sleep -> `day_end_min` an hour earlier and `planning_bias` down 0.1); inferred ones are clamped to a small step (`_MAX_STEP`: 2h on times, 3h on the focus window, 0.2 on planning bias) and carry a one-sentence reason. The UI shows Now -> proposed with the reason; only ticked ones are applied (`/api/chat/rules/apply`, pinned as stated rules). If a planning-relevant setting changed, a button offers to re-plan the next two weeks' flexible blocks (`mode: full`, locked events never move, undoable). Quick-reply chips start the conversation.
+
+**Goal review** (`/api/ai/review-goals`): besides verdicts, the model may return typed `changes` per goal (`move_target`, `add_milestone`, `move_milestone`, `drop_milestone`, `pivot`) and `new_goals`. `_clean_changes` validates ids, dates and numbers and decides, server-side, which are `major` (a pivot, more than one dropped milestone, a target moved over 21 days, or 40%+ of the open work touched); one major change makes the whole package major. The server never applies anything. In Goals (`goalChanges.js`, `ProposedChanges` in `GoalRow.jsx`): a minor change is one press on Apply; a major package shows what would be replaced and needs "I understand this changes my plan" then "Approve and apply"; a new goal is only added by its own button; every apply has an Undo; finished work is never removed.
+
+**Home** shows "These goals need attention" (behind / at risk / out of reach, or next milestone with no time booked), or "All goals on track". The calendar folds sleep hours behind arrows (`SleepFold`); only waking hours show until opened.
+
+### 7.17 Detours without day counts; catch-up time for every goal that is behind; the wizard's words match its actions
+
+A detour is logged as a kind (sidetrack / roadblock / pivot) and a sentence. How much it cost is **inferred**: `goalMath.daysBehind` finds the date on the planned curve where the plan had reached today's progress and compares it with today; the insight line and the review payload (`days_behind`) use that. No "days lost" input is stored or asked for. On Home, every goal that is behind / at risk / out of reach gets a catch-up request (`goalNudge.catchUpFor`: the hours between plan and reality, or the rest of the next milestone, capped at 10h, less what the calendar already holds for it), opening the calendar planner; a goal with enough time already booked says so and points to the wizard. In the wizard review, `_align_prose` turns a prose recommendation that names an open milestone with a cutting verb into a `drop_milestone` proposal, and any prose with no matching change is returned as `unapplied` and shown as "Also mentioned" (never hidden); the prompt now requires every recommendation to be a typed change.
+
+Severity on Home: `goalAttention.severityOf` gives each goal needing attention 1 to 3 warning signs (1 yellow = slightly behind, 2 orange = clearly behind or at risk, 3 red = 30+ points behind or out of reach); the "Find time" button takes the same colour. A close, under-booked milestone request is kept and comes first; a goal that is behind with no close milestone falls back to a catch-up request. "See a sample review" in Goals loads `demoReview` (made-up, server-shaped, no AI call, goals untouched) so the proposed-changes screens can be tried.
+
+Ordering fix: in `calendar_bridge._reschedule_once`, a block that stays put now puts a latest-finish (`end_by`) on every prerequisite (and its prerequisites, transitively) that is being re-placed, so clearing a window that holds a prerequisite moves it to any free time earlier in the not-yet-passed week instead of the first free slot after its old place (which could be after the dependent and was reported as "couldn't fit cleanly"). Test: `tests/test_calendar_api.py` "clearing a prerequisite's slot". Failure is still reported when there truly is no time before the dependent.
+
+Editable proposals: in the reschedule preview (`mode: diff`, "After" view) every flexible block that has not passed can be dragged by hand (`grabProposed` in `WeekView.jsx`, maths in `proposalEdit.js` and `home/planDrag.js`). The panel marks blocks "you placed it" (with Reset per block and "Back to Otto's suggestion"), lists what the arrangement now breaks (overlap, order, back inside the cleared window) as "Worth a look" without blocking, and the button reads "Apply my version". Nothing is re-sent to the server while editing.
+
+### 7.18 Fifth build: real dates, repeating events, editing, goal links, per-task late start, patterns, rules, check-in summaries
+
+**Real dates.** An event's `day` is days since 1970-01-01 in local time (frontend `calendarUtils`: `dayNum`, `dateOfDay`, `isoOfDay`, `dayOfIso`, `migrateEvents` turns old 1..31 saves into the nearest real date; backend `app/daynum.py`). The week on screen follows the real date (re-read every 30 s and when the tab wakes), Month view shows whole weeks with neighbouring days, the 2-week view starts from this Monday. Weekday from a day number is `(n + 3) % 7` with Monday = 0.
+
+**Repeating events** (`views/calendar/recurrence.js`, `seriesStore.js`, key `otto.series.v1`). A series is a template plus a rule (daily / weekdays / weekly on chosen days with an every-N-weeks interval / monthly, optional end date). Occurrences are ordinary events with id `<series>@<day>` and `series_id`, laid out 12 weeks ahead and topped up by `App.jsx` on load, at midnight and whenever a series changes. Editing one occurrence changes only it; "this and following" splits the series (`applyEdit`); removing asks "just this one" or "this and every one after" (`applyRemove`; a removed day is remembered in `exceptions` so it is not laid out again). Known gap: an occurrence that is parked in the Grinder or filtered out elsewhere will be laid out again.
+
+**Editing events.** A pencil on a hovered or selected chip (or double-click) opens the same form, prefilled (title, note, checklist with ticks kept, steps and order, deadlines, goal link, repeat), with date and start-time fields. The button reads Save; the scheduler is asked to settle any clash.
+
+**Goals and the calendar** (`views/goals/goalLink.js`). An event can carry `goal_id` and `milestone_id` (form: "Counts towards"; sessions made by "Find time" carry them too). When the user says how a linked block went, the minutes actually worked are added to that step as `logged_h` (only the change is added if saved again, `credited_min`). Home's nudges count explicitly linked time first, then title matches, and subtract logged hours from what is still needed. Progress percentages are still driven by finished steps, not hours.
+
+**Late start, per task.** `engine/oversleep.apply` takes `choices` per task: today (re-placed from now) / tomorrow (first thing) / grinder (parked) / drop; anyone not named follows the proposed line. The screen shows a Today / Tomorrow / Grinder / Drop control on every ranked task. "Try the 11am demo" on Home runs a made-up morning (planned from 8:00, it is 11:00) with `dry_run`: nothing is saved or logged and the real calendar is untouched. **Three late starts** in a week: the profile keeps `late_log` (planned vs opened time); the third offers a later start (median opened time, nearest half hour) in a modal (Move it / Keep / Not now; Keep is not asked again for two weeks, `otto.startAsk.v1`); Move calls `setSleepWindow`.
+
+**Patterns** (`engine/patterns.py`). Nine comparisons, each needs 3+ data points on both sides and a real gap before it reports: switching cost, getting started, social drain or recharge, deadline pressure, recovery after hard work, decision fatigue, streaks, weekend recharge (Mondays), unfinished-day carry-over. New logged fields: reflections carry `days_to_deadline` and `prev_category`; energy taps carry `after_hard_min`. Shown on Stats, and the weekly chat is told the ones found.
+
+**Rules screen** (sidebar "Rules", `views/Rules.jsx`). Pinned rules in words with Release; a form to pin a rule by hand from `chat.CATALOGUE` (`/api/rules`); "What matters most": rank events and mark must-dos for this week / month / year, saved to `/api/priority-windows`, which the scheduler already honours.
+
+**Check-in summaries instead of transcripts.** The weekly chat no longer stores messages (a leftover `messages` list is dropped on read). `weekly.summaries` (kv, last 26) holds one short entry per applied check-in (what changed and why) and per approved goal-review change (`POST /api/summaries`). The next chat opens with the last one, the model is told the last three, and Stats lists them under "Past check-ins".
+
+Tests at this point: backend 293, frontend 200 (superseded by 7.20: backend 329, frontend 215) (`node --test src/views/*.test.mjs src/views/*/*.test.mjs src/home/*.test.mjs src/data/*.test.mjs src/*.test.mjs`).
+
+---
+
+## 14. KIV (kept in view, not built; for later review)
+
+- **Screen-time signal**: browser tab-visibility only (weak); a browser extension is the real source.
+- **Confirmed / TBC events** (dashed) and a **travel buffer**.
+- **Month-scale goal planning** (the planner is two weeks), **AAR panel** (post-session).
+- **Scheduler use of the new patterns** (e.g. leave room after hard blocks, plan the hardest work on Mondays, start deadline work earlier when pressure slows you): they are measured and shown, not yet acted on. Related: a learned `recovery_after_deep`.
+- **Repeating events**: "skip today's or reschedule?" micro-decision on a late start; occurrences removed through the Grinder come back; end-of-series on a whole-series edit of the title only (today "this and following" is the way to change a series); exceptions to a series' time for one day other than by editing that occurrence.
+- **Hours-based progress for goals** (today logged hours reduce what Otto asks you to book; the percentage still follows finished steps).
+- **Onboarding, accounts and login**, push/email notifications, mobile layout.
+- **Real otter art** where placeholders remain (`ASSETS_NEEDED.md`).
+- **Tests**: end-to-end (browser) tests; a live Supabase test; Google Calendar write-back and a live test with real keys.
+- **LLM cost controls** and trying a cheaper model for the weekly chat and wizard.
+- **Cleanup**: `NOW_TASKS` fixture leftovers; the double-click on a chip is unreliable because the side panel opens on the first click and shifts the grid (the pencil is the dependable way in).
+
+### 7.19 Accounts and hosting
+
+Google sign-in is Supabase Auth. `backend/app/auth.py` (ASGI middleware) checks each `/api` call's bearer token with Supabase and sets the current user; `kv.py` stores a signed-in person's documents under `u.<id>.` and `store.py` keeps their profile as a kv document, so nobody sees anyone else's data. It only applies when `OTTO_REQUIRE_LOGIN=1` and Supabase keys are set; otherwise everything is the single local user as before (and the tests). Page side: `Gate.jsx` / `Login.jsx` / `auth.js` / `authLogic.js` (a different person signing in on the same browser has the old `otto.*` data cleared first; the first sign-in adopts existing local data). The Google Calendar OAuth state carries the user id because Google's redirect has no token. `002_otto_kv_rls.sql` locks the table against the public anon key. Hosting: `Dockerfile` + `render.yaml` (Render free + Supabase free), steps in `DEPLOY.md`. **Not tested against a real Supabase project or on Render.**
+
+### 7.20 Priorities, the overwhelmed planner, plans shown on the calendar, a transparent Rules page
+
+**Priorities page** (`views/Priorities.jsx`, `priorityBoard.js`). Upcoming work is sorted into three cards (Important / Good to accomplish / Whatever) and into tiers inside a card (tier 1 matters most; several tasks can share a tier = no order). Stored on the events (`importance_cat`, `importance_tier`; a repeating event or split task moves as one, and the series template carries it). `engine/importance.py` turns it into 0..1; `scheduler.py` adds `W_USER * (p - 0.5)` to the priority (nothing for unsorted work), so a deadline is no longer the only thing that orders work. When a low-importance task has a hard deadline that cannot fit beside something marked important, `calendar_bridge.importance_decisions` returns a question (`decisions` on `/api/schedule` and the planners) and the page shows `ImportanceConflict.jsx`: the person decides which gives way (`priorityBoard.resolve`); "important wins" marks the other `yielded` so it is not asked again. The old priority-windows form is gone from the UI (backend kept).
+
+**Plans open on the calendar** (`handoff` in `App.jsx` / `WeekView.jsx`). Late start, "I'm overwhelmed" and "Show me the plan" on Priorities all produce a plan that opens on the calendar in the proposal view: a Current / New toggle (or Current plan / Otto's suggestion / Rest today), drag any block to adjust, notes under the list (what it costs, what goes to the Meatball Grinder, what was dropped), Apply or Cancel. Nothing changes until Apply. A late start is only counted (`/api/oversleep/log`) after it is applied.
+
+**Overwhelmed planner** (`engine/overwhelm.py`, `/api/overwhelm/triage|plan`, `views/Overwhelmed.jsx`). Today's open work ranked importance-first, split into "due soon" and "eventually". The person gives hours (or ticks tasks); the most important work that fits stays today. The rest goes where it belongs: hard deadline later = tomorrow; important = tomorrow; good/unsorted = next week; whatever = Meatball Grinder; a deadline today cannot move. If that pushes a hard deadline out of reach, the least important flexible work before the deadline is cleared (next week or Meatball Grinder), one piece at a time, until it fits; only what has to move moves (everything else is pinned). If deadlines still cannot be met, work goes into sleep hours and is flagged. The "rest day" plan blocks the rest of today; if resting costs sleep-hour work or a missed deadline, a pop-up says so ("Otto suggests you pull through today") and offers to show the cost. Warnings only count what the plan itself changed (sleep-hour blocks, deep work over 4h in a day, work before 3am, unmet deadlines).
+
+**Late start** now asks per task (Today / Tomorrow / Meatball Grinder / Drop) and opens the result on the calendar. The "try 11am demo" button was removed.
+
+**Rules page rebuilt** (`views/Rules.jsx`, `engine/metrics.py`, `/api/metrics`, `/api/targets`). Pinned rules shown first; "What Otto has worked out" lists every learned setting (rhythm, focus, pace, load, preferences) with a short name, a one-line meaning, the value, its source (set by you / learned from N logs / starting guess / worked out) and "how the scheduler uses it". Expand a row to set it yourself (pin) or hand it back to learning, and, for minute-type settings, name a number to move towards. With a target on the lunch slump, `LunchNudge.jsx` shows "Freshen up!! You promised you would stop your doomscroll in N min this time!" once a day between 12:30 and 15:00. Targets are reminders only; the scheduler plans with the true value. No "lunch" event is read; the window is fixed.
+
+**Client clock** (`app/clock.py`, `clientClock.js`). Every API call carries the person's local time (`X-Client-Now`) and the server uses it for "today"/"now", so a UTC host plans the person's day, not its own.
+
+**Follow-up polish (7.20).** Late-start rows: already-passed work is greyed out, the rest is tinted and edged by importance (red important, yellow good to accomplish, green whatever). Priorities: one card per piece of *work*, not per event: events are grouped by name (repeats, sessions and same-named events are one card, "x3"), so no schema change was needed (importance lives on each event, the series template and any new event with the same name inherit it); a new tier can be dropped between two existing tiers (`before:N`, drop zones appear while dragging). Stats "How you work" is a table: pattern, short reading, confidence pill (green confident = 12+ data points, yellow early read, grey still learning, hidden until opened), surest first (`engine/patterns.py` `confidence`, `short`). The scheduler (calendar path) now also tries a block at its planned length when there is no room for its pace buffer and ramp-up (`allow_tight`, marked `overpacked`).
