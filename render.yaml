@@ -1,0 +1,28 @@
+# Render Blueprint: New > Blueprint, point it at this repo. Free plan; secrets are filled in on the Render dashboard (sync: false).
+services:
+  - type: web
+    name: otto
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: OTTO_REQUIRE_LOGIN
+        value: "1"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: OTTO_ORIGIN
+        sync: false          # your app's address, e.g. https://otto.onrender.com
+      - key: OTTO_SECRET_KEY
+        generateValue: true      # encrypts people's saved OpenAI keys
+      - key: OPENAI_API_KEY
+        sync: false          # optional
+      - key: GOOGLE_CLIENT_ID
+        sync: false          # optional: Google Calendar sync
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false          # https://<your app>/api/gcal/callback
