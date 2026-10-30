@@ -10,11 +10,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-for key in ("EXA_API_KEY", "OPENAI_API_KEY"):
+for key in ("OPENAI_API_KEY",):
     os.environ[key] = ""
 
 _tmp = tempfile.mkdtemp(prefix="otto-tests-")
 os.environ["OTTO_PROFILE_PATH"] = str(Path(_tmp) / "profile.json")
+os.environ["OTTO_KV_PATH"] = str(Path(_tmp) / "kv.json")
+os.environ["OTTO_KV_BACKEND"] = "file"          # never touch a real Supabase from the tests
+for key in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"):
+    os.environ[key] = ""
 
 import pytest  # noqa: E402
 
@@ -25,4 +29,7 @@ def fresh_profile_store():
     p = Path(os.environ["OTTO_PROFILE_PATH"])
     if p.exists():
         p.unlink()
+    kv = Path(os.environ["OTTO_KV_PATH"])
+    if kv.exists():
+        kv.unlink()
     yield

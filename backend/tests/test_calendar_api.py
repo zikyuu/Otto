@@ -546,3 +546,62 @@ def test_a_marathon_keeps_its_subtasks_split_by_piece():
 def test_without_the_flag_a_normal_event_is_left_whole():
     res = schedule([ev("plain", 6, 9 * 60, 240, cat="admin")], plan_ids=["plain"])
     assert [e["id"] for e in res["events"]] == ["plain"]
+
+
+# ---- clearing time must not push a prerequisite past the block that waits for it ----------------------------
+# (called on the engine directly with a fixed "today", because the HTTP route uses the real clock)
+
+def _plan(events, blocked, now_min=8 * 60):
+    from datetime import date
+    from app.engine.calendar_bridge import reschedule_events
+    from app.models import Profile
+    return reschedule_events(events, [], Profile(), WEEK, week_start=date(2026, 10, 5), today=date(2026, 10, 5), now_min=now_min,
+                             mode="displaced", blocked_windows=blocked)
+
+
+def test_clearing_a_prerequisites_slot_moves_it_earlier_not_after_its_dependent():
+    """Thu 9:00 'leet' must come before Thu 14:00 'onsite'. Clearing Thu 8:30-13:45 moves 'leet'; there is room on Mon-Wed, so it
+    has to go there, not to Thu evening (after 'onsite') with a 'couldn't fit' warning."""
+    events = [ev("leet", 8, 9 * 60, 60, "leetcode"), ev("onsite", 8, 14 * 60, 90, "system-design", prereq_ids=["leet"])]
+    res = _plan(events, [{"day": 8, "start_min": 8 * 60 + 30, "end_min": 13 * 60 + 45}])
+    got = by_id(res)
+    leet, onsite = got["leet"], got["onsite"]
+    assert (onsite["day"], onsite["startMin"]) == (8, 14 * 60)                 # the one that was not in the window stays
+    assert (leet["day"], leet["startMin"] + leet["durationMin"]) <= (onsite["day"], onsite["startMin"])
+    assert not (leet["day"] == 8 and leet["startMin"] < 13 * 60 + 45 and leet["startMin"] + leet["durationMin"] > 8 * 60 + 30)    # not back in the window
+    assert not res["order_violations"] and "leet" not in res["conflicts"] and "onsite" not in res["conflicts"]
+
+
+def test_a_whole_chain_of_prerequisites_is_kept_before_the_block_that_stays():
+    events = [ev("a", 8, 9 * 60, 60), ev("b", 8, 10 * 60, 60, prereq_ids=["a"]), ev("c", 8, 14 * 60, 60, prereq_ids=["b"])]
+    res = _plan(events, [{"day": 8, "start_min": 8 * 60, "end_min": 12 * 60}])
+    g = by_id(res)
+    end = lambda e: (e["day"], e["startMin"] + e["durationMin"])
+    assert (g["c"]["day"], g["c"]["startMin"]) == (8, 14 * 60)
+    assert end(g["a"]) <= (g["b"]["day"], g["b"]["startMin"]) and end(g["b"]) <= (g["c"]["day"], g["c"]["startMin"])
+    assert not res["order_violations"]
+
+
+def test_when_there_truly_is_no_time_before_it_the_failure_is_still_reported():
+    # Monday 8:00 is "now"; 'onsite' stays at 10:00; the only time before it (8:00-10:00) is the window being cleared
+    events = [ev("leet", 5, 9 * 60, 60), ev("onsite", 5, 10 * 60, 60, prereq_ids=["leet"])]
+    res = _plan(events, [{"day": 5, "start_min": 8 * 60, "end_min": 10 * 60}], now_min=8 * 60)
+    assert res["conflicts"] or res["order_violations"]
+
+
+def test_a_block_that_fits_the_gap_as_planned_is_placed_even_without_room_for_its_pace_buffer():
+    """Pulling a prerequisite earlier: 'Full LeetCode set' is 60 min, the free time before "Onsite prep" is 80 min. With the pace
+    buffer and ramp-up Otto wants 93, but the block as planned fits, so it goes there (marked tight) instead of 'couldn't fit'."""
+    from datetime import date
+    from app.daynum import day_of
+    mon = date(2026, 10, 12)
+    week = [day_of(date.fromordinal(mon.toordinal() + i)) for i in range(7)]
+    thu, fri = week[3], week[4]
+    onsite = {"id": "onsite", "title": "Onsite prep", "day": thu, "startMin": 15 * 60, "durationMin": 90, "category": "system_design", "fixed": False, "prereq_ids": ["leet"]}
+    leet = {"id": "leet", "title": "Full LeetCode set", "day": fri, "startMin": 9 * 60 + 30, "durationMin": 60, "category": "leetcode", "fixed": False}
+    body = {"events": [onsite, leet], "pinned_ids": ["onsite"], "week_days": week, "week_start_iso": "2026-10-12", "mode": "displaced", "fix_order": "move_prerequisites"}
+    r = client.post("/api/schedule", json=body, headers={"X-Client-Now": "2026-10-15T13:40:00"}).json()
+    by = {e["id"]: e for e in r["events"]}
+    assert r["conflicts"] == [] and r["order_violations"] == []
+    assert by["leet"]["day"] == thu and by["leet"]["startMin"] >= 13 * 60 + 40 and by["leet"]["startMin"] + 60 <= 15 * 60
+    assert by["leet"]["durationMin"] == 60                                                     # still the block the person made
