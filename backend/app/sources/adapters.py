@@ -1,10 +1,10 @@
 """Swappable adapters — the "integrations are next" story, kept honest.
 
 ScheduleSource -> TimeBlock[] :  ManualSource (works) | GoogleCalendarSource (stub)
-JobSource      -> Goal   :  PasteJDSource (works) | ExaJobSource (stub)
+JobSource      -> Goal   :  PasteJDSource (works)
 
 The engine reads only TimeBlock[] and Goal. It never knows which adapter produced
-them, so adding Calendar or Exa tomorrow is a drop-in, not a rewrite.
+them, so adding Calendar tomorrow is a drop-in, not a rewrite.
 """
 from __future__ import annotations
 
@@ -52,10 +52,3 @@ class PasteJDSource(JobSource):
 
     def goals(self) -> list[Goal]:
         return [parse_jd(jd, goal_id=f"job{i+1}") for i, jd in enumerate(self._jds)]
-
-
-class ExaJobSource(JobSource):
-    """STRETCH. Light 'roles matching your resume' gesture via Exa semantic
-    search. Time-boxed tomorrow; NOT the focus (matching is 'Sup's turf)."""
-    def goals(self) -> list[Goal]:
-        raise NotImplementedError("Exa job-match adapter — stretch goal.")

@@ -14,6 +14,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
+from app import auth, kv
 from app.models import Profile
 
 _LOCK = threading.RLock()
@@ -26,8 +27,21 @@ def _path() -> Path:
     return Path(__file__).parent.parent / "data" / "profile.json"
 
 
+_PROFILE_KEY = "profile.data"       # a signed-in person's profile is a kv document (their own, and in Supabase when it is configured)
+
+
+def _signed_in() -> bool:
+    return auth.current_user.get() != auth.LOCAL
+
+
 def load_profile() -> Profile:
     """Stored profile, or a cold-start default if none/corrupt."""
+    if _signed_in():
+        try:
+            d = kv.get(_PROFILE_KEY)
+            return Profile.from_dict(d) if isinstance(d, dict) else Profile()
+        except (ValueError, KeyError, TypeError):
+            return Profile()
     with _LOCK:
         path = _path()
         if not path.exists():
@@ -40,6 +54,9 @@ def load_profile() -> Profile:
 
 def save_profile(profile: Profile) -> None:
     """Atomic write: a crash mid-save can't leave a half-written profile."""
+    if _signed_in():
+        kv.put(_PROFILE_KEY, profile.to_dict())
+        return
     with _LOCK:
         path = _path()
         path.parent.mkdir(parents=True, exist_ok=True)
