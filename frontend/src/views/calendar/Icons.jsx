@@ -23,10 +23,14 @@ export const IconChevR = make('chev-r', <path d="M6 3.5L10.5 8 6 12.5" />);
 export const IconWarn = make('warn', <><path d="M8 2.5l6 10.5H2L8 2.5z" /><path d="M8 6.8v2.8M8 11.6v.1" /></>);
 export const IconArrow = make('arrow', <path d="M3 8h10M9.5 4.5L13 8l-3.5 3.5" />);
 export const IconSelect = make('select', <><path d="M2.5 5.5V3.5a1 1 0 0 1 1-1h2M10.5 2.5h2a1 1 0 0 1 1 1v2M13.5 10.5v2a1 1 0 0 1-1 1h-2M5.5 13.5h-2a1 1 0 0 1-1-1v-2" /><path d="M6 8h4" /></>);
+export const IconPencil = make('pencil', <><path d="M10.6 3.4l2 2L5.8 12.2 3.2 12.8l.6-2.6 6.8-6.8z" /></>);
+export const IconRepeat = make('repeat', <><path d="M3 7.2V6a2 2 0 0 1 2-2h7.5M10.5 2l2 2-2 2M13 8.8V10a2 2 0 0 1-2 2H3.5M5.5 14l-2-2 2-2" /></>);
 export const IconCheck = make('check', <path d="M3.5 8.5l3 3 6-7" />);
 export const IconCalendar = make('calendar', <><rect x="2.5" y="3.5" width="11" height="10" rx="1.8" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></>);
 
 // sidebar
+export const IconRules = make('rules', <><path d="M3 4.5h10M3 8h10M3 11.5h10" /><circle cx="6" cy="4.5" r="1.4" fill="var(--bg, #fff)" /><circle cx="10.5" cy="8" r="1.4" fill="var(--bg, #fff)" /><circle cx="5" cy="11.5" r="1.4" fill="var(--bg, #fff)" /></>);
+export const IconPriority = make('priority', <><rect x="2.5" y="3" width="11" height="3" rx="1" /><rect x="2.5" y="7" width="8" height="3" rx="1" /><rect x="2.5" y="11" width="5" height="2.5" rx="1" /></>);
 export const IconNow = make('now', <><circle cx="8" cy="8" r="5.6" /><path d="M8 4.8V8l2.2 1.4" /></>);
 export const IconGoals = make('goals', <><circle cx="8" cy="8" r="5.6" /><circle cx="8" cy="8" r="2.6" /><circle cx="8" cy="8" r=".6" fill="currentColor" /></>);
 export const IconStats = make('stats', <path d="M3 13V8.5M7 13V3.5M11 13V6.5M14 13H2" />);

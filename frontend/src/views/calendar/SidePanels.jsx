@@ -1,11 +1,14 @@
 import { useState } from 'react';
+import { items as checkItems, doneCount } from './checklist.js';
+import { isStale, ageLabel } from './grinderAge.js';
 import { catOf } from './EventChip.jsx';
 import { fmtTime, fmtDur } from './calendarUtils.js';
 import { orderedChain, getLinks, ORDERED, GROUPED } from './linkUtils.js';
-import { IconClose, IconGrip, IconArrow, IconCheck } from './Icons.jsx';
+import { IconClose, IconGrip, IconArrow, IconCheck, IconClock, IconTarget, IconStop, IconLeaf } from './Icons.jsx';
 import { SLICE_COLORS } from '../../components/PieChart.jsx';
 import Gauge from '../../components/Gauge.jsx';
 import { art } from '../../assets/otto/index.js';
+import { sizeReason, whySession } from '../../home/planWhy.js';
 import { siblingsOf, displayTitle, planRows, coverage, hasCustomGoals, REFLECTIONS, remainder, reflectionRows, uncovered, restSignature, WHOLE } from './sessionGoals.js';
 
 // every panel is a bezel: a tray (outer) holding a plate (the Panel body)
@@ -41,11 +44,13 @@ function Dot({ ev }) { return <span style={{ width: 8, height: 8, borderRadius: 
 
 const sliceColor = i => SLICE_COLORS[i % SLICE_COLORS.length];
 
-function Art({ name, emoji, size = 30 }) {
+const ART_ICON = { check: IconCheck, clock: IconClock, target: IconTarget, stop: IconStop, leaf: IconLeaf };
+// the otter drawing for a reflection when it exists, otherwise a plain line icon
+function Art({ name, icon, size = 30 }) {
   const a = art(name);
-  return a && !a.placeholder
-    ? <img src={a.src} alt="" style={{ width: size, height: size, objectFit: 'contain' }} />
-    : <span aria-hidden style={{ fontSize: size * 0.8, lineHeight: 1 }}>{emoji}</span>;
+  if (a && !a.placeholder) return <img src={a.src} alt="" style={{ width: size, height: size, objectFit: 'contain' }} />;
+  const I = ART_ICON[icon] || IconCheck;
+  return <span aria-hidden style={{ display: 'grid', placeItems: 'center', width: size, height: size, color: 'var(--ink-2)' }}><I size={Math.round(size * 0.62)} /></span>;
 }
 
 function SectionTitle({ children, right }) {
@@ -89,11 +94,11 @@ function GoalsSection({ ev, rows, cov, split, onSetGoal, onResetGoals }) {
     </section>
   );
 }
-const TONES_WARN = '#8A5E16';
+const TONES_WARN = '#8A6A2F';
 
 function RestPrompt({ rest, onChoose }) {
   return (
-    <div role="group" aria-label="Schedule the rest?" style={{ padding: 14, borderRadius: 18, background: 'var(--surface)', boxShadow: 'inset 0 0 0 1px var(--line), 0 14px 24px -18px rgba(46,58,38,.5)', animation: 'popIn .5s var(--spring) both' }}>
+    <div role="group" aria-label="Schedule the rest?" style={{ padding: 14, borderRadius: 12, background: 'var(--surface)', boxShadow: 'inset 0 0 0 1px var(--line)', animation: 'popIn .5s var(--spring) both' }}>
       <p style={{ margin: 0, fontSize: 14, fontWeight: 600, letterSpacing: '-.015em' }}>Schedule the rest?</p>
       <p style={{ margin: '4px 0 10px', fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.45 }}>
         This goal leaves about <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{fmtDur(rest.minutes)}</strong> in no block: {rest.parts.map(p => `${p.name} ${p.short}%`).join(', ')}.
@@ -115,7 +120,7 @@ function SessionStrip({ sibs, current, rank, dayLabel, onSelect }) {
           <button key={e.id} onClick={() => onSelect(e.id)} aria-label={`Session ${i + 1}, ${dayLabel(e.day)} ${fmtTime(e.startMin)}`} aria-pressed={e.id === current}
             title={`${i + 1}: ${dayLabel(e.day)} ${fmtTime(e.startMin)}`}
             style={{ flex: 1, height: 26, borderRadius: 9, border: 0, cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-              background: e.id === current ? 'var(--forest)' : e.reflection ? '#DCE7CF' : 'var(--surface-2)', color: e.id === current ? 'var(--forest-ink)' : 'var(--ink-3)',
+              background: e.id === current ? 'var(--forest)' : e.reflection ? '#E4EAD3' : 'var(--surface-2)', color: e.id === current ? 'var(--forest-ink)' : 'var(--ink-3)',
               boxShadow: e.id === current ? 'none' : 'inset 0 0 0 1px var(--line)', transition: 'all .4s var(--ease)' }}>{i + 1}</button>
         ))}
       </div>
@@ -123,6 +128,85 @@ function SessionStrip({ sibs, current, rank, dayLabel, onSelect }) {
     </section>
   );
 }
+
+// ── checklist: a plain tick-list on the block; what is left open when it ends is offered a new slot ──────────
+function Checklist({ ev, onAdd, onToggle, onRemove }) {
+  const [text, setText] = useState('');
+  const list = checkItems(ev);
+  return (
+    <section aria-label="Checklist">
+      <SectionTitle right={list.length > 0 && <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{doneCount(ev)}/{list.length}</span>}>Checklist</SectionTitle>
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {list.map(i => (
+          <li key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button role="checkbox" aria-checked={i.done} aria-label={i.text} onClick={() => onToggle(i.id)} style={{
+              width: 18, height: 18, borderRadius: 6, border: 0, cursor: 'pointer', flexShrink: 0, display: 'grid', placeItems: 'center', color: '#fff',
+              background: i.done ? 'var(--accent)' : 'transparent', boxShadow: `inset 0 0 0 1.5px ${i.done ? 'var(--accent)' : 'var(--ink-4)'}`, transition: 'all .4s var(--ease)',
+            }}>{i.done && <IconCheck size={11} />}</button>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: i.done ? 'var(--ink-4)' : 'var(--ink)', textDecoration: i.done ? 'line-through' : 'none' }}>{i.text}</span>
+            <button className="btn btn--ghost btn--icon" aria-label={`Remove ${i.text}`} style={{ width: 22, height: 22 }} onClick={() => onRemove(i.id)}><IconClose size={10} /></button>
+          </li>
+        ))}
+      </ul>
+      <input value={text} onChange={e => setText(e.target.value)} placeholder="Add an item" aria-label="Add a checklist item"
+        onKeyDown={e => { if (e.key === 'Enter' && text.trim()) { onAdd(text); setText(''); } }}
+        style={{ width: '100%', marginTop: list.length ? 8 : 0, padding: '8px 12px', borderRadius: 12, border: 0, fontFamily: 'inherit', fontSize: 12.5, color: 'var(--ink)', background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 1px var(--line)', outline: 'none' }} />
+    </section>
+  );
+}
+
+// ── off track: what pulled you away, and when. Feeds how long you can really focus ────────────────────────────
+const REASONS = [
+  ['doomscrolled', 'Doomscrolled'], ['messages', 'Messages'], ['couldnt_focus', 'Could not focus'], ['break', 'Took a break'],
+  ['medical', 'Medical'], ['family', 'Family'], ['work_crisis', 'Work crisis'],
+];
+function OffTrack({ ev, onLog }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState(null);
+  const [mins, setMins] = useState(15);
+  const [into, setInto] = useState('');
+  const [busy, setBusy] = useState(false);
+  const logged = Array.isArray(ev.off_track) ? ev.off_track : [];
+  const max = ev.durationMin;
+  async function save() {
+    setBusy(true);
+    const ok = await onLog({ reason, durationMin: mins, intoTaskMin: into === '' ? null : Math.min(Number(into), max) });
+    setBusy(false);
+    if (ok) { setOpen(false); setReason(null); setInto(''); setMins(15); }
+  }
+  return (
+    <section aria-label="Went off track">
+      <SectionTitle right={!open && <button className="btn btn--ghost" style={{ height: 24, padding: '0 8px', fontSize: 11.5 }} onClick={() => setOpen(true)}>Label a stretch</button>}>Off track</SectionTitle>
+      {logged.length === 0 && !open && <p style={{ margin: 0, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>Lost the thread for a while? Say why. It is never held against you; it only helps Otto plan realistic stretches.</p>}
+      {logged.map((l, i) => <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '2px 0' }}><span>{REASONS.find(r => r[0] === l.reason)?.[1] ?? l.reason}</span><span className="mono" style={{ color: 'var(--ink-3)' }}>{l.durationMin} min{l.intoTaskMin != null ? `, ${l.intoTaskMin} min in` : ''}</span></div>)}
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          <div role="radiogroup" aria-label="What happened" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {REASONS.map(([k, label]) => (
+              <button key={k} role="radio" aria-checked={reason === k} onClick={() => setReason(k)} style={{
+                border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, padding: '6px 11px', borderRadius: 999, color: 'var(--ink-2)',
+                background: reason === k ? '#E4EAD3' : 'var(--surface-2)', boxShadow: `inset 0 0 0 ${reason === k ? 2 : 1}px ${reason === k ? 'var(--accent)' : 'var(--line)'}`, transition: 'all .4s var(--ease)',
+              }}>{label}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            <label style={{ flex: 1, fontSize: 11.5, color: 'var(--ink-3)' }}>For how long (min)
+              <input type="number" min={5} max={600} step={5} value={mins} onChange={e => setMins(Math.max(5, Math.min(600, Number(e.target.value) || 5)))} style={fieldStyle} />
+            </label>
+            <label style={{ flex: 1, fontSize: 11.5, color: 'var(--ink-3)' }}>Minutes into the block
+              <input type="number" min={0} max={max} step={5} value={into} placeholder="optional" onChange={e => setInto(e.target.value)} style={fieldStyle} />
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button className="btn btn--primary" disabled={!reason || busy} style={{ height: 34, padding: '0 8px 0 16px' }} onClick={save}>Log it<span className="btn__icon" style={{ width: 22, height: 22, marginRight: 0 }}><IconCheck size={11} /></span></button>
+            <button className="btn btn--ghost" style={{ height: 34 }} onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+const fieldStyle = { display: 'block', width: '100%', marginTop: 4, padding: '7px 10px', borderRadius: 10, border: 0, fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 1px var(--line)', outline: 'none' };
 
 function Reflection({ ev, rows, onReflect }) {
   const done = ev.reflection;
@@ -138,8 +222,8 @@ function Reflection({ ev, rows, onReflect }) {
     return (
       <section aria-label="How it went">
         <SectionTitle right={<button className="btn btn--ghost" style={{ height: 24, padding: '0 8px', fontSize: 11.5 }} onClick={() => setEditing(true)}>Edit</button>}>How it went</SectionTitle>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 14, background: '#E4ECD6' }}>
-          <Art name={`reflect-${r.key}`} emoji={r.emoji} size={28} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: '#E4EAD3' }}>
+          <Art name={`reflect-${r.key}`} icon={r.icon} size={28} />
           <div><div style={{ fontSize: 13.5, fontWeight: 600 }}>{r.label}</div>
             {done.remainder && <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 1 }}>Remainder: {done.remainder === 'fit' ? 'fitted into this week' : 'left in the Meatball Grinder'}</div>}</div>
         </div>
@@ -160,11 +244,11 @@ function Reflection({ ev, rows, onReflect }) {
       <div role="radiogroup" aria-label="How it went" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
         {REFLECTIONS.map(r => (
           <button key={r.key} role="radio" aria-checked={choice === r.key} onClick={() => setChoice(r.key)} title={r.hint} style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 2px 6px', borderRadius: 14, border: 0, cursor: 'pointer', fontFamily: 'inherit', color: 'inherit',
-            background: choice === r.key ? '#E4ECD6' : 'var(--surface-2)', boxShadow: `inset 0 0 0 ${choice === r.key ? 2 : 1}px ${choice === r.key ? 'var(--accent)' : 'var(--line)'}`,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 2px 6px', borderRadius: 10, border: 0, cursor: 'pointer', fontFamily: 'inherit', color: 'inherit',
+            background: choice === r.key ? '#E4EAD3' : 'var(--surface-2)', boxShadow: `inset 0 0 0 ${choice === r.key ? 2 : 1}px ${choice === r.key ? 'var(--accent)' : 'var(--line)'}`,
             transform: choice === r.key ? 'translateY(-2px)' : 'none', transition: 'all .5s var(--ease)',
           }}>
-            <Art name={`reflect-${r.key}`} emoji={r.emoji} size={28} />
+            <Art name={`reflect-${r.key}`} icon={r.icon} size={28} />
             <span style={{ fontSize: 9.5, fontWeight: 600, lineHeight: 1.15, textAlign: 'center', color: 'var(--ink-2)' }}>{r.label}</span>
           </button>
         ))}
@@ -190,7 +274,7 @@ function Reflection({ ev, rows, onReflect }) {
       )}
 
       <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Additional notes" aria-label="Additional notes" rows={3}
-        style={{ width: '100%', marginTop: 14, padding: '10px 12px', borderRadius: 14, border: 0, resize: 'vertical', fontFamily: 'inherit', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink)', background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 1px var(--line)', outline: 'none' }} />
+        style={{ width: '100%', marginTop: 14, padding: '10px 12px', borderRadius: 10, border: 0, resize: 'vertical', fontFamily: 'inherit', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink)', background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 1px var(--line)', outline: 'none' }} />
 
       {!ask ? (
         <button className="btn btn--primary" style={{ marginTop: 12, height: 38, padding: '0 8px 0 18px' }} disabled={!choice}
@@ -198,7 +282,7 @@ function Reflection({ ev, rows, onReflect }) {
           Save how it went<span className="btn__icon" style={{ width: 24, height: 24, marginRight: 0 }}><IconCheck size={12} /></span>
         </button>
       ) : (
-        <div role="group" aria-label="Reschedule remainder?" style={{ marginTop: 14, padding: 14, borderRadius: 18, background: 'var(--surface)', boxShadow: 'inset 0 0 0 1px var(--line), 0 14px 24px -18px rgba(46,58,38,.5)', animation: 'popIn .5s var(--spring) both' }}>
+        <div role="group" aria-label="Reschedule remainder?" style={{ marginTop: 14, padding: 14, borderRadius: 12, background: 'var(--surface)', boxShadow: 'inset 0 0 0 1px var(--line)', animation: 'popIn .5s var(--spring) both' }}>
           <p style={{ margin: 0, fontSize: 14, fontWeight: 600, letterSpacing: '-.015em' }}>Reschedule remainder?</p>
           <p style={{ margin: '4px 0 10px', fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.45 }}>
             About <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{fmtDur(rem.minutes)}</strong> is left: {rem.parts.map(p => `${p.name} ${p.short}%`).join(', ')}.
@@ -270,10 +354,10 @@ export function hasPanelContent(events, ev, past) {
   if (!ev) return false;
   const sibs = new Set(events.filter(e => e.split_of && e.split_of === ev.split_of).map(e => e.id));
   const chain = orderedChain(events, ev.id).filter(id => !sibs.has(id) || id === ev.id);
-  return past || (ev.subtasks?.length > 0) || chain.length > 1 || getLinks(events).some(l => l.type === GROUPED && (l.from === ev.id || l.to === ev.id));
+  return past || checkItems(ev).length > 0 || (ev.subtasks?.length > 0) || chain.length > 1 || getLinks(events).some(l => l.type === GROUPED && (l.from === ev.id || l.to === ev.id));
 }
 
-export function EventPanel({ events, selectedId, dayLabel, dayIdx, past, onClose, onSelect, onReorder, onUnlink, onSetGoal, onResetGoals, onReflect, onRest }) {
+export function EventPanel({ events, selectedId, dayLabel, dayIdx, past, started = past, onClose, onSelect, onReorder, onUnlink, onSetGoal, onResetGoals, onReflect, onRest, onChecklist, onOffTrack }) {
   const ev = events.find(e => e.id === selectedId);
   const [dragIdx, setDragIdx] = useState(null);
   const [overIdx, setOverIdx] = useState(null);
@@ -297,6 +381,8 @@ export function EventPanel({ events, selectedId, dayLabel, dayIdx, past, onClose
       <Head title={displayTitle(events, ev, dayIdx)} sub={`${dayLabel(ev.day)} · ${fmtTime(ev.startMin)}-${fmtTime(ev.startMin + ev.durationMin)} · ${fmtDur(ev.durationMin)}`} onClose={onClose} />
       <div style={{ ...body, display: 'flex', flexDirection: 'column', gap: 22 }}>
         {past && <Reflection key={`${ev.id}-${ev.reflection ? 'done' : 'open'}`} ev={ev} rows={reflectionRows(ev, events)} onReflect={onReflect} />}
+        {checkItems(ev).length > 0 && <Checklist ev={ev} onAdd={t => onChecklist('add', t)} onToggle={id => onChecklist('toggle', id)} onRemove={id => onChecklist('remove', id)} />}
+        {started && !ev.fixed && <OffTrack ev={ev} onLog={onOffTrack} />}
         {split && <SessionStrip sibs={sibs} current={ev.id} rank={rank} dayLabel={dayLabel} onSelect={onSelect} />}
         {!past && rows.length > 0 && <GoalsSection ev={ev} rows={rows} cov={cov} split={split} onSetGoal={onSetGoal} onResetGoals={onResetGoals} />}
         {restOpen && <RestPrompt rest={rest} onChoose={a => onRest(a, rest)} />}
@@ -308,25 +394,98 @@ export function EventPanel({ events, selectedId, dayLabel, dayIdx, past, onClose
 }
 
 // ── The Meatball Grinder: what was parked on purpose, to find a slot for later ───────────────────
-export function GrinderPanel({ items, onPlace, onRemove, onClose }) {
+export function GrinderPanel({ items, onPlace, onRemove, onClose, onKeep, onSomeday, onReopen }) {
+  const open = items.filter(i => !i.someday), parked = items.filter(i => i.someday);
+  const row = it => {
+    const stale = isStale(it);
+    return (
+      <div key={it.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--line-soft)' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+          <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500 }}>{it.title}</span>
+          <span className="mono" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{fmtDur(it.minutes)}</span>
+        </div>
+        {it.note && <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.4 }}>{it.note}</p>}
+        {stale && (
+          <div role="group" aria-label={`Still want ${it.title}?`} style={{ margin: '8px 0 0', padding: '10px 12px', borderRadius: 10, background: '#F3E6C8', boxShadow: 'inset 0 0 0 1px #E6D3A6', animation: 'popIn .45s var(--spring) both' }}>
+            <p style={{ margin: 0, fontSize: 12.5, color: '#8A6A2F', lineHeight: 1.45 }}>Parked {ageLabel(it)} ago. Still want it?</p>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => onKeep(it)}>Keep</button>
+              <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => onRemove(it)}>Delete</button>
+              <button className="btn" style={{ height: 26, fontSize: 12 }} onClick={() => onSomeday(it)} title="No scheduling pressure, no more reminders">Someday</button>
+            </div>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          {it.someday
+            ? <button className="btn" style={{ height: 28 }} onClick={() => onReopen(it)}>Bring it back</button>
+            : <button className="btn" style={{ height: 28 }} onClick={() => onPlace(it)}>Find a slot this week</button>}
+          {!stale && <button className="btn btn--ghost" style={{ height: 28 }} onClick={() => onRemove(it)}>Drop it</button>}
+          {!it.someday && !stale && <span className="mono" style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: 11, color: 'var(--ink-4)' }}>{ageLabel(it)}</span>}
+        </div>
+      </div>
+    );
+  };
   return (
     <Shell label="Meatball Grinder" width={344}>
       <Head title="Meatball Grinder" sub="Parked on purpose. Otto never schedules these on its own." onClose={onClose} />
       <div style={body}>
         {items.length === 0 && <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55 }}>Nothing parked. When a session falls short you can leave the remainder here instead of cramming it into the week.</p>}
-        {items.map(it => (
-          <div key={it.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--line-soft)' }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500 }}>{it.title}</span>
-              <span className="mono" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{fmtDur(it.minutes)}</span>
+        {open.map(row)}
+        {parked.length > 0 && (
+          <>
+            <div className="label-caps" style={{ margin: '18px 0 2px' }}>Someday</div>
+            <p style={{ margin: '0 0 4px', fontSize: 12, color: 'var(--ink-3)' }}>No pressure. These stay here until you want them.</p>
+            {parked.map(row)}
+          </>
+        )}
+      </div>
+    </Shell>
+  );
+}
+
+// ── planning time for a goal: suggested slots, adjustable before they are committed ───────────────────
+export function PlanPanel({ plan, events = [], dayLabel, clashOf, onRemove, onConfirm, onCancel, onRetry }) {
+  const total = (plan.sessions || []).reduce((t, x) => t + x.durationMin, 0);
+  return (
+    <Shell label="Plan time" width={344}>
+      <Head title={`Time for ${plan.nudge.milestone}`} sub={`${plan.nudge.goal}${plan.nudge.due ? ` · due ${new Date(plan.nudge.due + 'T00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}`} onClose={onCancel} />
+      <div style={body}>
+        {plan.loading && <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', animation: 'ringPulse 1.1s var(--ease) infinite' }}>Looking for free time…</p>}
+        {plan.error && (
+          <>
+            <p role="alert" style={{ margin: 0, fontSize: 13, color: '#8C4A33', lineHeight: 1.5 }}>{plan.error}</p>
+            <button className="btn" style={{ marginTop: 10 }} onClick={onRetry}>Try again</button>
+          </>
+        )}
+        {plan.sessions && (
+          <>
+            {plan.sessions.length > 0 && <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5, padding: '8px 10px', borderRadius: 10, background: 'rgba(106,120,77,.1)' }}>{sizeReason({ sessions: plan.sessions, learned: plan.learned, category: plan.category })}</p>}
+            <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+              Everything else is dimmed. These are suggestions: <strong style={{ fontWeight: 600, color: 'var(--ink-2)' }}>drag a dashed block</strong> to where it suits you, then confirm.
+            </p>
+            {plan.sessions.length === 0 && <p style={{ margin: 0, fontSize: 13, color: '#8C4A33' }}>There is no free time before then. Cancel, clear something, and try again.</p>}
+            {[...plan.sessions].sort((a, b) => a.day - b.day || a.startMin - b.startMin).map(x => {
+              const clash = clashOf(x);
+              return (
+                <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderTop: '1px solid var(--line-soft)' }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--accent)', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{dayLabel(x.day)}</span>
+                    <span className="mono" style={{ display: 'block', fontSize: 12, color: 'var(--ink-3)' }}>{fmtTime(x.startMin)} to {fmtTime(x.startMin + x.durationMin)} · {fmtDur(x.durationMin)}</span>
+                    {clash.length > 0 && <span style={{ display: 'block', fontSize: 11.5, color: '#8C4A33' }}>Overlaps {clash[0].title}</span>}
+                    <span style={{ display: 'block', fontSize: 11.5, color: 'var(--ink-3)', marginTop: 1 }}>{whySession(x, { learned: plan.learned, events, deadline: plan.nudge.due })}</span>
+                  </span>
+                  <button className="btn btn--ghost btn--icon" aria-label="Remove this session" style={{ width: 26, height: 26 }} onClick={() => onRemove(x.id)}><IconClose size={11} /></button>
+                </div>
+              );
+            })}
+            <p className="mono" style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>{fmtDur(total)} of {fmtDur(plan.nudge.shortMin)} needed</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <button className="btn btn--primary" disabled={plan.sessions.length === 0} style={{ padding: '0 8px 0 18px' }} onClick={onConfirm}>Book {plan.sessions.length} session{plan.sessions.length === 1 ? '' : 's'}<span className="btn__icon" style={{ width: 22, height: 22, marginRight: 0 }}><IconCheck size={12} /></span></button>
+              <button className="btn btn--ghost" onClick={onCancel}>Cancel</button>
             </div>
-            {it.note && <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.4 }}>{it.note}</p>}
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button className="btn" style={{ height: 28 }} onClick={() => onPlace(it)}>Find a slot this week</button>
-              <button className="btn btn--ghost" style={{ height: 28 }} onClick={() => onRemove(it)}>Drop it</button>
-            </div>
-          </div>
-        ))}
+          </>
+        )}
       </div>
     </Shell>
   );
@@ -391,22 +550,40 @@ export function ClipPanel({ items, choices, setChoice, windowCount, dayLabel, bu
 // ── Reschedule: the proposed result, before applying it ───────────────────────────────────────
 const KIND_LABEL = { moved: 'Moved', resized: 'Resized', added: 'New', removed: 'Removed' };
 
-export function DiffPanel({ changes, conflicts, titles, explanation, view, setView, dayLabel, onApply, onBack, onCancel }) {
+export function DiffPanel({ changes, conflicts, titles, explanation, view, setView, dayLabel, problems = [], edited = new Set(), onResetOne, onResetAll, onApply, onBack, onCancel,
+  title = 'Proposed changes', variants = null, variant = null, onVariant = null, notes = null, applyLabel = 'Apply', backLabel = 'Back' }) {
   return (
     <Shell label="Proposed schedule">
-      <Head title="Proposed changes" sub={changes.length ? `${changes.length} event${changes.length === 1 ? '' : 's'} change` : 'Nothing needs to change'} onClose={onCancel} />
+      <Head title={title} sub={changes.length ? `${changes.length} event${changes.length === 1 ? '' : 's'} change` : 'Nothing needs to change'} onClose={onCancel} />
       <div style={{ padding: '12px 16px 0' }}>
-        <div className="seg" role="group" aria-label="Compare">
-          <button aria-pressed={view === 'before'} onClick={() => setView('before')}>Before</button>
-          <button aria-pressed={view === 'after'} onClick={() => setView('after')}>After</button>
-        </div>
+        {variants ? (
+          <div className="seg" role="group" aria-label="Compare plans" style={{ flexWrap: 'wrap' }}>
+            <button aria-pressed={view === 'before'} onClick={() => setView('before')}>Current plan</button>
+            {variants.map(v => <button key={v.key} aria-pressed={view === 'after' && variant === v.key} onClick={() => onVariant(v.key)}>{v.label}</button>)}
+          </div>
+        ) : (
+          <div className="seg" role="group" aria-label="Compare">
+            <button aria-pressed={view === 'before'} onClick={() => setView('before')}>Current</button>
+            <button aria-pressed={view === 'after'} onClick={() => setView('after')}>New</button>
+          </div>
+        )}
+        <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+          {view === 'after' ? <><strong style={{ fontWeight: 600, color: 'var(--ink-2)' }}>This is a suggestion, not a verdict.</strong> Drag any block in the calendar to where you want it. Locked blocks stay put.</> : 'This is how the week looks now. Switch to the new plan to see and adjust it.'}
+        </p>
+        {edited.size > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--accent-ink)' }}>You moved {edited.size} block{edited.size === 1 ? '' : 's'}.</span>
+            <button className="btn btn--ghost" style={{ height: 26, fontSize: 12 }} onClick={onResetAll}>Back to Otto&rsquo;s suggestion</button>
+          </div>
+        )}
       </div>
       <div style={body}>
         {changes.map(c => (
           <div key={c.id + c.kind} style={{ padding: '9px 0', borderBottom: '1px solid var(--line-soft)' }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
               <span style={{ flex: 1, fontSize: 12.5, fontWeight: 500 }}>{c.title}</span>
-              <span className="label-caps" style={{ fontSize: 9.5 }}>{KIND_LABEL[c.kind]}</span>
+              {edited.has(c.id) && <button className="btn btn--ghost" style={{ height: 22, fontSize: 11, padding: '0 6px' }} onClick={() => onResetOne(c.id)} title="Put it back where Otto suggested">Reset</button>}
+              <span className="label-caps" style={{ fontSize: 9.5 }}>{edited.has(c.id) ? 'you placed it' : KIND_LABEL[c.kind]}</span>
             </div>
             <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 3, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               {c.from && <span style={{ textDecoration: c.kind === 'removed' ? 'line-through' : 'none' }}>{dayLabel(c.from.day)} {fmtTime(c.from.startMin)}{c.kind === 'resized' ? ` · ${fmtDur(c.from.durationMin)}` : ''}</span>}
@@ -417,15 +594,52 @@ export function DiffPanel({ changes, conflicts, titles, explanation, view, setVi
         ))}
         {conflicts.length > 0 && (
           <p role="alert" style={{ margin: '14px 0 0', fontSize: 12.5, color: 'var(--danger)', lineHeight: 1.5 }}>
-            Couldn&rsquo;t fit cleanly: {conflicts.map(id => titles[id] || id).join(', ')}.
+            Couldn&rsquo;t fit cleanly: {conflicts.map(id => titles[id] || id).join(', ')}. Try dragging {conflicts.length === 1 ? 'it' : 'them'} to a free spot.
           </p>
         )}
-        {explanation && <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{explanation}</p>}
+        {problems.length > 0 && (
+          <div role="alert" style={{ margin: '14px 0 0', padding: '10px 12px', borderRadius: 12, background: '#F3E6C8', color: '#8A6A2F', fontSize: 12.5, lineHeight: 1.5 }}>
+            <strong style={{ fontWeight: 600 }}>Worth a look</strong>
+            <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>{problems.slice(0, 5).map((p, i) => <li key={i}>{p.text}</li>)}</ul>
+            <span style={{ display: 'block', marginTop: 4, fontSize: 11.5 }}>You can still apply it; this is only a heads-up.</span>
+          </div>
+        )}
+        {view === 'after' && notes}
+        {explanation && edited.size === 0 && <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{explanation}</p>}
       </div>
       <div style={foot}>
-        <button className="btn" onClick={onBack}>Back</button>
-        <button className="btn btn--primary" onClick={onApply}>Apply</button>
+        <button className="btn" onClick={onBack}>{backLabel}</button>
+        <button className="btn btn--primary" onClick={onApply}>{edited.size > 0 ? 'Apply my version' : applyLabel}</button>
       </div>
     </Shell>
+  );
+}
+
+
+
+// what a plan made elsewhere says besides the moved blocks: what it costs, what went to the Meatball Grinder, what was dropped
+export function HandoffNotes({ variant, titles = {} }) {
+  if (!variant) return null;
+  const tone = { good: ['#E4EAD3', 'var(--accent-ink)'], warn: ['#F3E6C8', '#8A6A2F'], bad: ['#F2D9CF', '#A5543F'] };
+  const dropped = (variant.dropped || []).map(id => titles[id] || id);
+  return (
+    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {(variant.warnings || []).map((w, i) => (
+        <div key={i} role={w.level === 'bad' ? 'alert' : 'note'} style={{ padding: '9px 12px', borderRadius: 12, background: tone[w.level]?.[0] || tone.warn[0], color: tone[w.level]?.[1] || tone.warn[1], fontSize: 12.5, lineHeight: 1.5 }}>{w.text}</div>
+      ))}
+      {(variant.grinder || []).length > 0 && (
+        <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          <span className="label-caps" style={{ fontSize: 9.5 }}>Goes to the Meatball Grinder</span>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>{variant.grinder.map(g => <li key={g.id}>{g.title} <span style={{ color: 'var(--ink-3)' }}>({fmtDur(g.minutes)})</span></li>)}</ul>
+          <span style={{ display: 'block', marginTop: 2, fontSize: 11.5, color: 'var(--ink-3)' }}>Parked on purpose; Otto never schedules these on its own.</span>
+        </div>
+      )}
+      {dropped.length > 0 && (
+        <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          <span className="label-caps" style={{ fontSize: 9.5 }}>Dropped</span>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>{dropped.map((t, i) => <li key={i}>{t}</li>)}</ul>
+        </div>
+      )}
+    </div>
   );
 }

@@ -2,11 +2,13 @@
 // pure math, no react stuff
 
 export const PX_PER_MIN = 1.4;
-export const DAY_START  = 8  * 60;
-export const DAY_END    = 23 * 60;
+// The grid shows the whole day. Sleep hours are shaded and protected (the scheduler never plans into them on its own),
+// but you can still drag work into them by hand, e.g. to rush a project.
+export const DAY_START  = 0;
+export const DAY_END    = 24 * 60;
 export const GRID_H     = (DAY_END - DAY_START) * PX_PER_MIN;
 export const SNAP       = 15;
-export const HOURS      = Array.from({ length: 15 }, (_, i) => i + 8);
+export const HOURS      = Array.from({ length: 24 }, (_, i) => i);
 export const DOW_NAMES  = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export function fmtTime(min) {
@@ -69,4 +71,33 @@ export function weekRangeLabel(weekDates) {
 export function isoDate(d) {
   const pad = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+
+// ---- real dates -------------------------------------------------------------------------------------------------------------
+// An event's `day` is a day number: whole days since 1 Jan 1970 (local calendar). It is unique across months and years, so a
+// week or a month can be shown for any date, and the same number means the same date everywhere (the server only compares them).
+export const dayNum = d => {
+  const x = d instanceof Date ? d : new Date(d);
+  return Math.round(Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()) / 86400000);
+};
+export const dateOfDay = n => new Date(1970, 0, 1 + n);
+export const isoOfDay = n => isoDate(dateOfDay(n));
+export const dayOfIso = iso => dayNum(new Date(`${String(iso).slice(0, 10)}T00:00:00`));
+
+// events saved before real dates carried only the date of the month (1 to 31); read them as the nearest such date to today
+export const isLegacyDay = n => Number.isInteger(n) && n >= 1 && n <= 31;
+export function legacyToDay(n, today = new Date()) {
+  let best = null, bestGap = Infinity;
+  for (const m of [-1, 0, 1]) {
+    const d = new Date(today.getFullYear(), today.getMonth() + m, n);
+    if (d.getDate() !== n) continue;                       // the month has no such day (31 in a 30-day month)
+    const gap = Math.abs(dayNum(d) - dayNum(today));
+    if (gap < bestGap) { best = dayNum(d); bestGap = gap; }
+  }
+  return best ?? dayNum(today);
+}
+export function migrateEvents(events, today = new Date()) {
+  if (!Array.isArray(events) || !events.some(e => isLegacyDay(e.day))) return events;
+  return events.map(e => (isLegacyDay(e.day) ? { ...e, day: legacyToDay(e.day, today) } : e));
 }

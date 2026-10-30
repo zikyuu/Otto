@@ -17,7 +17,7 @@ export function useDragResize({
   eventsRef, setEvents,
   draftBlock, setDraftBlock,
   newTaskDraft, setNewTaskDraft,
-  setUndoStack, callScheduler,
+  setUndoStack, callScheduler, onResizeEnd,
 }) {
   const dragRef   = useRef(null);
   const resizeRef = useRef(null);
@@ -54,6 +54,7 @@ export function useDragResize({
       id: ev.id,
       fixedStart: ev.startMin,
       fixedEnd:   ev.startMin + ev.durationMin,
+      origDuration: ev.durationMin,
     };
     if (edge === 'top') setResizingTopId(ev.id);
   }
@@ -163,6 +164,12 @@ export function useDragResize({
     cancelAnimationFrame(rafIdRef.current);
     setResizingTopId(null);
     setIsDraftMoving(false);
+    // the end of a block was dragged to what really happened: tell the page (it decides whether that is a signal)
+    const rz = resizeRef.current;
+    if (rz && rz.kind === 'event' && rz.type === 'bottom' && onResizeEnd) {
+      const after = eventsRef.current.find(x => x.id === rz.id);
+      if (after && after.durationMin !== rz.origDuration) onResizeEnd(after, rz.origDuration);
+    }
     const dr  = dragRef.current;
     // the last animation frame may not have run yet (a quick flick): take the position from the release itself
     const pos = dr && gridRef.current ? (posRef.current = dragTarget(e)) : posRef.current;

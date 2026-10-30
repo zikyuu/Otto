@@ -91,11 +91,11 @@ export function coverage(events, ev, dayIdx) {
 // ---- looking back --------------------------------------------------------------------------------
 
 export const REFLECTIONS = [
-  { key: 'nailed',      label: 'Nailed it',            emoji: '👍', hint: 'It went as planned or better' },
-  { key: 'harder',      label: 'Harder than expected', emoji: '😓', hint: 'It took longer than the plan' },
-  { key: 'gap',         label: 'Gap',                  emoji: '🌀', hint: 'I realised I am missing a skill' },
-  { key: 'interrupted', label: 'Interrupted',          emoji: '⚡', hint: 'Something outside my control got in' },
-  { key: 'outlier',     label: 'Outlier',              emoji: '😴', hint: 'Just an off day, do not learn from it' },
+  { key: 'nailed',      label: 'Nailed it',            icon: 'check', hint: 'It went as planned or better' },
+  { key: 'harder',      label: 'Harder than expected', icon: 'clock', hint: 'It took longer than the plan' },
+  { key: 'gap',         label: 'Gap',                  icon: 'target', hint: 'I realised I am missing a skill' },
+  { key: 'interrupted', label: 'Interrupted',          icon: 'stop', hint: 'Something outside my control got in' },
+  { key: 'outlier',     label: 'Outlier',              icon: 'leaf', hint: 'Just an off day, do not learn from it' },
 ];
 
 // Work (minutes of subtask effort) the plan promised, and what was actually achieved

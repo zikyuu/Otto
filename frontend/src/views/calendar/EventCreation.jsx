@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import Mascot from '../../components/Mascot.jsx';
-import { IconCalendar, IconClock, IconFlag, IconTarget, IconPin, IconClose, IconPlus, IconArrow, IconGrip, IconSteps, IconTrash, categoryIcon } from './Icons.jsx';
+import { IconCalendar, IconClock, IconFlag, IconTarget, IconPin, IconClose, IconPlus, IconArrow, IconGrip, IconSteps, IconTrash, IconRepeat, categoryIcon } from './Icons.jsx';
 import { CATEGORY_COLORS } from '../../data/fixtures.js';
-import { fmtTime, isoDate, DAY_START, DAY_END, PX_PER_MIN } from './calendarUtils.js';
+import { fmtTime, isoDate, isoOfDay, dayOfIso, DAY_START, DAY_END, PX_PER_MIN } from './calendarUtils.js';
+import { PRESETS, weekdayOf, describeRule } from './recurrence.js';
 import { checkDates } from './dateChecks.js';
 import PieChart, { SLICE_COLORS } from '../../components/PieChart.jsx';
 import { MIN_SUB, spread, refit, parseDuration } from './subtaskMath.js';
@@ -48,19 +49,43 @@ export default function EventCreation({
   gridRef, scrollRef, weekDayNums, weekDates,
   onCommit, onCancel, onRequestCancel,
   confirmingCancel, onConfirmCancel, onDismissConfirm,
+  setDraftBlock, editing = null, series = null, goals = [],
 }) {
-  const [isAdvanced,    setIsAdvanced]    = useState(false);
-  const [orderSpecific, setOrderSpecific] = useState(false);
-  const [description,   setDescription]  = useState('');
+  const ed = editing;      // the event being changed, or null for a new one
+  const [isAdvanced,    setIsAdvanced]    = useState(() => !!(ed && (ed.subtasks?.length || ed.deadline_iso || ed.best_done_by_iso)));
+  const [orderSpecific, setOrderSpecific] = useState(() => !!ed?.subtasks?.some(x => x.order != null));
+  const [description,   setDescription]  = useState(ed?.description || '');
+  const [checklist,     setChecklist]    = useState(() => (ed?.checklist || []).map(c => c.text));     // plain tick-list items; unfinished ones are offered a new slot later
+  const [checkText,     setCheckText]    = useState('');
+  const doneText = useRef(new Set((ed?.checklist || []).filter(c => c.done).map(c => c.text)));      // ticks survive an edit
 
   // Deadline fields
-  const [deadline,       setDeadline]       = useState('');
-  const [isHardDeadline, setIsHardDeadline] = useState(true);
-  const [bestDoneBy,     setBestDoneBy]     = useState('');
+  const [deadline,       setDeadline]       = useState(ed?.deadline_iso || '');
+  const [isHardDeadline, setIsHardDeadline] = useState(ed ? ed.hard_deadline !== false : true);
+  const [bestDoneBy,     setBestDoneBy]     = useState(ed?.best_done_by_iso || '');
+
+  // Goal link, repeat and (for one occurrence of a series) how far the change reaches
+  const [goalId,      setGoalId]      = useState(ed?.goal_id || '');
+  const [milestoneId, setMilestoneId] = useState(ed?.milestone_id || '');
+  const [scope,       setScope]       = useState('this');
+  const startWd = weekdayOf(draftBlock.day);
+  const kindOf = r => !r ? 'none' : r.freq === 'daily' && (r.interval || 1) === 1 ? 'daily' : r.freq === 'monthly' && (r.interval || 1) === 1 ? 'monthly'
+    : r.freq === 'weekly' && (r.interval || 1) === 1 && r.days?.join() === '0,1,2,3,4' ? 'weekdays' : r.freq === 'weekly' && (r.interval || 1) === 1 && !r.days?.length ? 'weekly' : 'custom';
+  const [repeat,      setRepeat]      = useState(() => kindOf(series?.rule));
+  const [repDays,     setRepDays]     = useState(() => (series?.rule?.days?.length ? series.rule.days : [startWd]));
+  const [repEvery,    setRepEvery]    = useState(() => series?.rule?.interval || 1);
+  const [repUntil,    setRepUntil]    = useState(() => (series?.until != null ? isoOfDay(series.until) : ''));
+  const ruleNow = repeat === 'none' ? null : repeat === 'custom' ? { freq: 'weekly', days: [...repDays].sort((a, b) => a - b), interval: Math.max(1, repEvery) } : PRESETS[repeat];
+  const canRepeat = !series || scope === 'following';        // one occurrence cannot have its own rule
 
   const total = newTaskDraft.duration_planned;
 
   const [subtasks, setSubtasks] = useState(() => {
+    if (ed?.subtasks?.length) {
+      const counts = {};
+      ed.subtasks.forEach(x => { if (x.order != null) counts[x.order] = (counts[x.order] || 0) + 1; });
+      return ed.subtasks.map((x, i) => ({ id: x.id ?? i + 1, name: x.name, mins: x.minutes, pinned: true, orderGroup: x.order != null && counts[x.order] > 1 ? x.order : null }));
+    }
     const half = Math.floor(total / 2);
     return [
       { id: 1, name: '', mins: half,         pinned: false, orderGroup: null },
@@ -100,7 +125,7 @@ export default function EventCreation({
     const colLeft   = rect.left + colIdx * colW;
     left = colIdx <= 3 ? colLeft + colW + 10 : colLeft - popW - 10;
     left = Math.max(12, Math.min(window.innerWidth - popW - 12, left));
-    top  = Math.max(8, Math.min(window.innerHeight - (isAdvanced ? 700 : 610), blockTop));
+    top  = Math.max(8, Math.min(window.innerHeight - (isAdvanced ? 800 : 780), blockTop));
   }
 
   const sel    = EVENT_COLORS.find(c => c.category === newTaskDraft.category) || EVENT_COLORS[0];
@@ -129,11 +154,16 @@ export default function EventCreation({
     onCommit({
       description: description.trim() || null,
       span_days: spans,
+      checklist: checklist.map((text, i) => ({ id: `c${Date.now().toString(36)}${i}`, text, done: doneText.current.has(text) })),
       subtasks: saved,
       order_specific: isAdvanced && orderSpecific,
       deadline_iso:     isAdvanced && deadline ? deadline : null,
       hard_deadline:    isHardDeadline,
       best_done_by_iso: isAdvanced && bestDoneBy ? bestDoneBy : null,
+      goal_id: goalId || null,
+      milestone_id: goalId && milestoneId ? milestoneId : null,
+      repeat: canRepeat ? { rule: ruleNow, until: repUntil ? dayOfIso(repUntil) : null } : undefined,
+      scope,
     });
   }
 
@@ -338,9 +368,9 @@ export default function EventCreation({
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)} style={{
       width: 38, height: 22, borderRadius: 999, border: 0, padding: 2, cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center',
-      background: on ? 'var(--accent)' : 'rgba(46,74,56,.18)', transition: 'background .5s var(--ease)', justifyContent: on ? 'flex-end' : 'flex-start',
+      background: on ? 'var(--accent)' : 'rgba(32,40,8,.18)', transition: 'background .5s var(--ease)', justifyContent: on ? 'flex-end' : 'flex-start',
     }}>
-      <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: '0 2px 4px rgba(0,0,0,.25)', transition: 'transform .5s var(--spring)' }} />
+      <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: 'none', transition: 'transform .5s var(--spring)' }} />
     </button>
   );
   const Seg = ({ value, onChange, options, label }) => (
@@ -365,8 +395,22 @@ export default function EventCreation({
       <input className="bare" type="text" placeholder="Add a note" value={description} onChange={e => setDescription(e.target.value)}
         style={{ border: 0, outline: 'none', fontSize: 13.5, color: 'var(--ink-2)', background: 'transparent', fontFamily: 'inherit', marginTop: -8 }} />
 
+      {/* a tick-list for the block: unfinished items get a new slot afterwards */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: -4 }}>
+        {checklist.map((t, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-2)' }}>
+            <span style={{ width: 14, height: 14, borderRadius: 5, boxShadow: 'inset 0 0 0 1.5px var(--ink-4)', flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</span>
+            <button className="btn btn--ghost btn--icon" aria-label={`Remove ${t}`} style={{ width: 22, height: 22 }} onPointerDown={e => e.stopPropagation()} onClick={() => setChecklist(c => c.filter((_, j) => j !== i))}><IconClose size={10} /></button>
+          </div>
+        ))}
+        <input className="bare" type="text" placeholder={checklist.length ? 'Add another checklist item' : 'Add a checklist item'} aria-label="Checklist item" value={checkText} onChange={e => setCheckText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && checkText.trim()) { e.preventDefault(); e.stopPropagation(); setChecklist(c => [...c, checkText.trim().slice(0, 120)]); setCheckText(''); } }}
+          style={{ border: 0, outline: 'none', fontSize: 13, color: 'var(--ink-2)', background: 'transparent', fontFamily: 'inherit' }} />
+      </div>
+
       {/* when */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px 10px 14px', borderRadius: 16, background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 1px var(--line-soft)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px 10px 14px', borderRadius: 12, background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 1px var(--line-soft)' }}>
         <IconClock size={15} style={{ color: 'var(--ink-3)' }} />
         <span className="mono" style={{ fontSize: 13.5, fontWeight: 500 }}>{spans ? `From ${fmtTime(draftBlock.startMin)}` : `${fmtTime(draftBlock.startMin)} to ${fmtTime(endMin)}`}</span>
         <input
@@ -379,7 +423,7 @@ export default function EventCreation({
       </div>
 
       {spans && (
-        <div role="note" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '11px 13px', borderRadius: 16, background: '#E4ECD6', boxShadow: 'inset 0 0 0 1px #C9DBB9', marginTop: -4 }}>
+        <div role="note" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '11px 13px', borderRadius: 12, background: '#E4EAD3', boxShadow: 'inset 0 0 0 1px #D3DBBB', marginTop: -4 }}>
           <IconCalendar size={16} style={{ color: 'var(--accent-ink)', marginTop: 1 }} />
           <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-2)' }}>
             <strong style={{ fontWeight: 600, color: 'var(--ink)' }}>This event will span several days</strong> and be filled in at the times you have free, not as one block.
@@ -407,6 +451,74 @@ export default function EventCreation({
         </div>
       </div>
 
+      {/* date and start, editable here as well as by dragging */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input type="date" aria-label="Date" value={isoOfDay(draftBlock.day)} onChange={e => { if (e.target.value) setDraftBlock(b => ({ ...b, day: dayOfIso(e.target.value) })); }} style={{ ...dateField(null), flex: 1, minWidth: 0 }} />
+        <input type="time" aria-label="Start time" value={`${String(Math.floor(draftBlock.startMin / 60)).padStart(2, '0')}:${String(draftBlock.startMin % 60).padStart(2, '0')}`}
+          onChange={e => { const [h, m] = e.target.value.split(':').map(Number); if (!Number.isNaN(h)) setDraftBlock(b => ({ ...b, startMin: Math.min(h * 60 + (m || 0), DAY_END - 15) })); }} style={{ ...dateField(null), width: 124, padding: '0 8px' }} />
+      </div>
+
+      {ed && series && (
+        <div>
+          <p className="label-caps" style={{ margin: '0 0 8px' }}>This event repeats</p>
+          <Seg label="Scope of the change" value={scope} onChange={setScope} options={[['this', 'Just this one'], ['following', 'This and following']]} />
+        </div>
+      )}
+
+      {/* repeat */}
+      {canRepeat && (
+        <div>
+          <p className="label-caps" style={{ margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}><IconRepeat size={12} />Repeat</p>
+          <select aria-label="Repeat" value={repeat} onChange={e => setRepeat(e.target.value)} style={{ ...dateField(null), width: '100%' }}>
+            <option value="none">Does not repeat</option>
+            <option value="daily">Every day</option>
+            <option value="weekdays">Every weekday</option>
+            <option value="weekly">Every week on {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][startWd]}</option>
+            <option value="custom">Choose days…</option>
+            <option value="monthly">Every month</option>
+          </select>
+          {repeat === 'custom' && (
+            <div style={{ display: 'flex', gap: 5, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l, i) => {
+                const on = repDays.includes(i);
+                return <button key={i} aria-pressed={on} aria-label={['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][i]}
+                  onClick={() => setRepDays(d => (on ? (d.length > 1 ? d.filter(x => x !== i) : d) : [...d, i]))}
+                  style={{ width: 32, height: 32, borderRadius: '50%', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, background: on ? 'var(--accent)' : 'transparent', color: on ? '#fff' : 'var(--ink-3)', boxShadow: on ? 'none' : 'inset 0 0 0 1px var(--line)' }}>{l}</button>;
+              })}
+              <span style={{ fontSize: 12, color: 'var(--ink-3)', marginLeft: 6 }}>every</span>
+              <input type="number" min={1} max={8} aria-label="Every how many weeks" value={repEvery} onChange={e => setRepEvery(Math.max(1, Math.min(8, +e.target.value || 1)))} style={{ ...dateField(null), width: 52 }} />
+              <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>wk</span>
+            </div>
+          )}
+          {repeat !== 'none' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: 'var(--ink-3)' }}>Until
+              <input type="date" aria-label="Repeat until" value={repUntil} min={isoOfDay(draftBlock.day)} onChange={e => setRepUntil(e.target.value)} style={{ ...dateField(null), flex: 1 }} />
+              {repUntil && <button className="btn btn--ghost" onClick={() => setRepUntil('')}>No end</button>}
+            </label>
+          )}
+          {repeat !== 'none' && <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>{describeRule(ruleNow, draftBlock.day)}{repUntil ? `, until ${repUntil}` : ''}</p>}
+        </div>
+      )}
+
+      {/* the goal this time counts towards */}
+      {goals.length > 0 && (
+        <div>
+          <p className="label-caps" style={{ margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}><IconTarget size={12} />Counts towards</p>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <select aria-label="Goal" value={goalId} onChange={e => { setGoalId(e.target.value); setMilestoneId(''); }} style={{ ...dateField(null), flex: 1, minWidth: 0 }}>
+              <option value="">No goal</option>
+              {goals.map(g => <option key={g.id} value={g.id}>{g.title}</option>)}
+            </select>
+            {goalId && (
+              <select aria-label="Milestone" value={milestoneId} onChange={e => setMilestoneId(e.target.value)} style={{ ...dateField(null), flex: 1, minWidth: 0 }}>
+                <option value="">Any step</option>
+                {(goals.find(g => g.id === goalId)?.milestones || []).filter(m => !m.done).map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* must-do */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ flex: 1 }}>
@@ -419,17 +531,17 @@ export default function EventCreation({
       {/* advanced planning entry */}
       <button onClick={() => setIsAdvanced(a => !a)} aria-expanded={isAdvanced} style={{
         display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer', border: 0, fontFamily: 'inherit', color: 'inherit',
-        padding: '10px 10px 10px 8px', borderRadius: 20, background: isAdvanced ? '#E4ECD6' : 'var(--surface-2)', boxShadow: `inset 0 0 0 1px ${isAdvanced ? '#C9DBB9' : 'var(--line)'}`,
+        padding: '10px 10px 10px 8px', borderRadius: 12, background: isAdvanced ? '#E4EAD3' : 'var(--surface-2)', boxShadow: `inset 0 0 0 1px ${isAdvanced ? '#D3DBBB' : 'var(--line)'}`,
         transition: 'background .5s var(--ease), box-shadow .5s var(--ease)',
       }}>
-        <span style={{ width: 52, height: 52, borderRadius: 16, background: 'rgba(255,255,255,.7)', display: 'grid', placeItems: 'center', overflow: 'hidden', flexShrink: 0 }}>
+        <span style={{ width: 52, height: 52, borderRadius: 12, background: 'rgba(255,255,255,.7)', display: 'grid', placeItems: 'center', overflow: 'hidden', flexShrink: 0 }}>
           <Mascot art="otter-thinking" size={52} zoom={2.6} />
         </span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>Advanced planning</span>
           <span style={{ display: 'block', fontSize: 12, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.35 }}>{isAdvanced ? 'Steps, deadlines and order are open on the right.' : 'Split it into steps and set a deadline.'}</span>
         </span>
-        <span style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(46,74,56,.1)', display: 'grid', placeItems: 'center', transform: isAdvanced ? 'rotate(180deg)' : 'none', transition: 'transform .6s var(--ease)' }}>
+        <span style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(32,40,8,.1)', display: 'grid', placeItems: 'center', transform: isAdvanced ? 'rotate(180deg)' : 'none', transition: 'transform .6s var(--ease)' }}>
           <IconArrow size={13} style={{ transform: 'rotate(90deg)' }} />
         </span>
       </button>
@@ -437,7 +549,7 @@ export default function EventCreation({
   );
 
   const planCol = isAdvanced && (
-    <div style={{ flex: 1, minWidth: 0, padding: '22px 24px 20px', background: 'linear-gradient(180deg, rgba(240,234,214,.55), rgba(240,234,214,.25))', borderLeft: '1px solid var(--line-soft)', display: 'flex', flexDirection: 'column', gap: 22, animation: 'riseIn .8s var(--ease) both' }}>
+    <div style={{ flex: 1, minWidth: 0, padding: '22px 24px 20px', background: 'var(--surface-2)', borderLeft: '1px solid var(--line-soft)', display: 'flex', flexDirection: 'column', gap: 22, animation: 'riseIn .8s var(--ease) both' }}>
       {/* timing */}
       <section aria-label="Timing">
         <h3 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 600, letterSpacing: '-.015em' }}>When it has to be done</h3>
@@ -473,7 +585,7 @@ export default function EventCreation({
         {orderSpecific && <p style={{ margin: '-4px 0 10px', fontSize: 12, color: 'var(--ink-3)' }}>Drag the grip to reorder. Right-click and drag across steps to group ones that can happen together.</p>}
 
         {orderSpecific && selectedIds.size >= 2 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: `${sel.accent}18`, boxShadow: `inset 0 0 0 1px ${sel.accent}44`, borderRadius: 14, padding: '7px 8px 7px 14px', marginBottom: 10, animation: 'popIn .4s var(--spring) both' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: `${sel.accent}18`, boxShadow: `inset 0 0 0 1px ${sel.accent}44`, borderRadius: 10, padding: '7px 8px 7px 14px', marginBottom: 10, animation: 'popIn .4s var(--spring) both' }}>
             <span style={{ fontSize: 12.5, color: sel.text, fontWeight: 600, flex: 1 }}>{selectedIds.size} steps selected</span>
             <button className="btn btn--primary" onClick={groupSelected} style={{ height: 28, padding: '0 14px', fontSize: 12 }}>Group together</button>
             <button className="btn btn--ghost btn--icon" aria-label="Clear selection" onClick={() => setSelectedIds(new Set())} style={{ width: 28, height: 28 }}><IconClose size={12} /></button>
@@ -492,7 +604,7 @@ export default function EventCreation({
           <div ref={listRef} style={{ flex: 1, minWidth: 0, position: 'relative', userSelect: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}
             onPointerMove={onListPointerMove} onPointerUp={onListPointerUp} onPointerCancel={onListPointerUp} onPointerDown={onListPointerDown} onContextMenu={e => e.preventDefault()}>
             {selRect && selRect.height > 4 && (
-              <div style={{ position: 'absolute', left: -4, right: -4, top: selRect.top, height: selRect.height, background: `${sel.accent}18`, boxShadow: `inset 0 0 0 1.5px ${sel.accent}88`, borderRadius: 14, pointerEvents: 'none', zIndex: 10 }} />
+              <div style={{ position: 'absolute', left: -4, right: -4, top: selRect.top, height: selRect.height, background: `${sel.accent}18`, boxShadow: `inset 0 0 0 1.5px ${sel.accent}88`, borderRadius: 10, pointerEvents: 'none', zIndex: 10 }} />
             )}
 
             {subtasks.map((s, i) => {
@@ -503,7 +615,7 @@ export default function EventCreation({
               const color = SLICE_COLORS[i % SLICE_COLORS.length];
               return (
                 <div key={s.id} data-subtask-row="1" data-subtask-id={String(s.id)} className="step-row" style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 6px 6px 10px', borderRadius: 14, minHeight: 42,
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 6px 6px 10px', borderRadius: 10, minHeight: 42,
                   background: isSelected ? `${sel.accent}18` : 'var(--surface)', opacity: isDragging ? .35 : 1,
                   boxShadow: `inset 0 0 0 1px ${isSelected ? sel.accent + '77' : 'var(--line-soft)'}${isDropOver ? `, 0 -2px 0 0 ${sel.accent}` : ''}`,
                   transition: 'opacity .3s var(--ease), box-shadow .3s var(--ease), background .3s var(--ease)',
@@ -538,12 +650,12 @@ export default function EventCreation({
         </div>
 
         {pending && (
-          <div role="group" aria-label="How should the rest adjust?" style={{ marginTop: 14, padding: 14, borderRadius: 18, background: 'var(--surface)', boxShadow: 'inset 0 0 0 1px var(--line), 0 14px 24px -18px rgba(46,58,38,.5)', animation: 'popIn .5s var(--spring) both' }}>
+          <div role="group" aria-label="How should the rest adjust?" style={{ marginTop: 14, padding: 14, borderRadius: 12, background: 'var(--surface)', boxShadow: 'inset 0 0 0 1px var(--line)', animation: 'popIn .5s var(--spring) both' }}>
             <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, lineHeight: 1.4 }}>“{pending.name}” becomes {fmtMins(pending.m)} (it was {fmtMins(pending.cur)}). What should adjust?</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {pending.opts.map(o => (
                 <button key={o.key} disabled={!o.ok} onClick={() => applyOption(o)} style={{
-                  textAlign: 'left', padding: '10px 12px', borderRadius: 14, border: 0, fontFamily: 'inherit', cursor: o.ok ? 'pointer' : 'not-allowed', opacity: o.ok ? 1 : .5,
+                  textAlign: 'left', padding: '10px 12px', borderRadius: 10, border: 0, fontFamily: 'inherit', cursor: o.ok ? 'pointer' : 'not-allowed', opacity: o.ok ? 1 : .5,
                   background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 1px var(--line)', transition: 'all .4s var(--ease)',
                 }}>
                   <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: sel.text }}>{o.title}</span>
@@ -557,7 +669,7 @@ export default function EventCreation({
         )}
 
         {!pending && mismatch && (
-          <div role="alert" style={{ marginTop: 14, padding: '12px 14px', borderRadius: 16, background: '#F7E4DE', boxShadow: 'inset 0 0 0 1px #E8C0B2', fontSize: 12.5, color: '#8A3A26', lineHeight: 1.45 }}>
+          <div role="alert" style={{ marginTop: 14, padding: '12px 14px', borderRadius: 12, background: '#F3DDD2', boxShadow: 'inset 0 0 0 1px #E8C0B2', fontSize: 12.5, color: '#A5543F', lineHeight: 1.45 }}>
             Pinned steps add up to <strong>{fmtMins(plannedSum)}</strong>, but the block is <strong>{fmtMins(total)}</strong>.
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
               <button className="btn btn--primary" style={{ height: 28, background: 'var(--danger)', boxShadow: 'none' }} onClick={() => setNewTaskDraft(d => ({ ...d, duration_planned: plannedSum }))}>Make the block {fmtMins(plannedSum)}</button>
@@ -574,7 +686,7 @@ export default function EventCreation({
     <div className="bezel bezel--float" onPointerDown={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}
       style={{ position: 'fixed', zIndex: 100, top, left, width: popW, maxHeight: 'calc(100vh - 24px)', transition: 'width .7s var(--ease)', animation: 'riseIn .6s var(--ease) both' }}>
       <div className="core" style={{ display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 36px)' }}>
-        <div style={{ height: 4, background: `linear-gradient(90deg, ${sel.accent}, ${sel.accent}88)`, flexShrink: 0 }} />
+        <div style={{ height: 4, background: sel.accent, flexShrink: 0 }} />
 
         {confirmingCancel && (
           <div onPointerDown={e => e.stopPropagation()} role="alertdialog" aria-label="Discard this event?" style={{
@@ -605,7 +717,7 @@ export default function EventCreation({
           </p>
           <button className="btn btn--ghost" onPointerDown={e => { e.stopPropagation(); onRequestCancel(); }}>Cancel</button>
           <button className="btn btn--primary" onClick={commit} disabled={!canCommit} style={{ height: 40, padding: '0 8px 0 20px', fontSize: 13.5 }}>
-            Add to calendar<span className="btn__icon" style={{ width: 26, height: 26, marginRight: 0 }}><IconArrow size={13} /></span>
+            {ed ? 'Save' : 'Add to calendar'}<span className="btn__icon" style={{ width: 26, height: 26, marginRight: 0 }}><IconArrow size={13} /></span>
           </button>
         </div>
       </div>

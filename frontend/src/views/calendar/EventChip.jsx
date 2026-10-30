@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CATEGORY_COLORS, DEFAULT_CAT_COLOR } from '../../data/fixtures.js';
 import { PX_PER_MIN, DAY_START, fmtTime, fmtDur } from './calendarUtils.js';
 import DeleteButton from '../../components/DeleteButton.jsx';
-import { IconLock, IconUnlock, IconLink, IconCheck, categoryIcon } from './Icons.jsx';
+import { IconLock, IconUnlock, IconLink, IconCheck, IconPencil, categoryIcon } from './Icons.jsx';
 
 export const catOf = ev => CATEGORY_COLORS[ev.category] || DEFAULT_CAT_COLOR;
 
@@ -19,7 +19,7 @@ function EventDetailsCard({ ev, accent, side }) {
       position: 'absolute', top: 0, zIndex: 60, width: 232, pointerEvents: 'none',
       ...(side === 'right' ? { left: 'calc(100% + 12px)' } : { right: 'calc(100% + 12px)' }),
       background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12,
-      padding: '12px 14px', boxShadow: 'var(--shadow-md)',
+      padding: '12px 14px', boxShadow: 'none',
       animation: 'fadeIn .12s var(--ease)', whiteSpace: 'normal', cursor: 'default',
     }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.3 }}>{ev.title}</div>
@@ -61,8 +61,8 @@ function EventDetailsCard({ ev, accent, side }) {
 
 // `flip` = { dx, dy, delay }: the chip travels in from where it used to be (staggered).
 export default function EventChip({
-  ev, label, past, draggingThis, noTopTransition, isConflict, popSide, compact, dim, ringed, selected, flip, thinking = 0, interactive = true,
-  onPointerDown, onResizeStart, onDelete, onToggleLock, onLinkStart, onSelect, linked,
+  ev, label, past, draggingThis, noTopTransition, isConflict, popSide, compact, dim, ringed, selected, flip, thinking = 0, interactive = true, editOnly = false,
+  onPointerDown, onResizeStart, onDelete, onToggleLock, onLinkStart, onSelect, onEdit, linked,
 }) {
   const [hovered, setHovered]       = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -72,24 +72,26 @@ export default function EventChip({
   const Glyph    = categoryIcon(ev.category);
   const settling = !draggingThis && !noTopTransition && !flip;
   const showNodes = interactive && hovered && !draggingThis && !confirming;
+  const night = !!ev.crunch;      // placed in protected sleep hours on purpose
 
   return (
     <div
-      onPointerDown={e => { if (!interactive) return; e.stopPropagation(); if (!confirming) onPointerDown(e); }}
+      onPointerDown={e => { if (!interactive && !(editOnly && !ev.fixed)) return; e.stopPropagation(); if (!confirming) onPointerDown(e); }}
       onClick={() => { if (interactive) onSelect?.(ev.id); }}
+      onDoubleClick={e => { if (interactive && onEdit) { e.stopPropagation(); onEdit(ev); } }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
         position: 'absolute',
         top: (ev.startMin - DAY_START) * PX_PER_MIN, left: 3, right: 3, height,
-        background: isConflict ? '#F7E2DA' : c.bg,
-        border: `${ev.fixed && !isConflict ? 1.5 : 1}px solid ${isConflict ? 'var(--danger)' : c.accent + (ev.fixed ? 'AA' : '33')}`,
+        background: isConflict ? '#F3DDD2' : c.bg,
+        border: `${ev.fixed && !isConflict ? 1.5 : 1}px ${ev.ghost || night ? 'dashed' : 'solid'} ${isConflict ? 'var(--danger)' : c.accent + (ev.fixed ? 'AA' : ev.ghost ? '88' : '33')}`,
         boxShadow: ringed ? `0 0 0 2px ${c.accent}` : selected ? `0 0 0 2px ${c.accent}AA` : 'var(--shadow-sm)',
         borderRadius: compact ? 10 : 14, padding: compact ? '4px 6px 0' : tall ? '9px 11px 0' : '5px 9px 0',
-        cursor: !interactive ? 'default' : ev.fixed ? 'default' : draggingThis ? 'grabbing' : 'grab',
+        cursor: !interactive ? (editOnly && !ev.fixed ? 'grab' : 'default') : ev.fixed ? 'default' : draggingThis ? 'grabbing' : 'grab',
         userSelect: 'none',
         zIndex: draggingThis ? 1 : (hovered || confirming) ? 8 : ringed ? 6 : 3,
-        opacity: draggingThis ? 0.18 : dim ? 0.3 : 1,
+        opacity: draggingThis ? 0.18 : dim ? 0.3 : ev.ghost ? 0.5 : 1,
         transition: draggingThis ? 'opacity .1s var(--ease)'
           : settling ? 'top .32s var(--ease), height .2s var(--ease), opacity .2s var(--ease), box-shadow .2s var(--ease)'
           : 'opacity .2s var(--ease), box-shadow .2s var(--ease)',
@@ -105,7 +107,7 @@ export default function EventChip({
           position: 'absolute', top: 0,
           ...(popSide === 'right' ? { left: 'calc(100% + 12px)' } : { right: 'calc(100% + 12px)' }),
           background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px',
-          boxShadow: 'var(--shadow-md)', zIndex: 50, whiteSpace: 'nowrap',
+          boxShadow: 'none', zIndex: 50, whiteSpace: 'nowrap',
           display: 'flex', flexDirection: 'column', gap: 10,
         }}>
           <span style={{ fontSize: 12.5, fontWeight: 500 }}>Remove “{ev.title}”?</span>
@@ -121,6 +123,14 @@ export default function EventChip({
       {hovered && interactive && !draggingThis && !confirming && hasDetails(ev) && <EventDetailsCard ev={ev} accent={c.accent} side={popSide} />}
 
       {!ev.fixed && <DeleteButton visible={showNodes} onDelete={() => setConfirming(true)} label="Remove event" />}
+
+      {showNodes && onEdit && (
+        <button className="chip-node" aria-label="Edit event" title="Edit (or double-click)"
+          onPointerDown={e => { e.stopPropagation(); onEdit(ev); }} onClick={e => e.stopPropagation()}
+          style={{ right: -9, top: 6 }}>
+          <IconPencil size={10} />
+        </button>
+      )}
 
       {/* link node — drag from here to another event to link them */}
       {showNodes && (
@@ -138,7 +148,7 @@ export default function EventChip({
         // Locked reads as a solid badge with a white padlock; unlocked only shows an outlined open padlock on hover.
         const bs = compact ? 16 : 22;
         const lockStyle = ev.fixed
-          ? { width: bs, height: bs, borderRadius: '50%', background: c.text, color: '#fff', border: 0, boxShadow: `0 6px 10px -4px ${c.text}88, 0 0 0 2px ${c.bg}` }
+          ? { width: bs, height: bs, borderRadius: '50%', background: c.text, color: '#fff', border: 0, boxShadow: `0 0 0 2px ${c.bg}` }
           : { width: bs, height: bs, borderRadius: '50%', background: 'transparent', color: c.text, border: `1.5px dashed ${c.text}66`, opacity: .8 };
         const lockTitle = ev.fixed ? 'Locked: Otto never moves this. Click to unlock.' : 'Lock in place so Otto never moves it';
         const lock = (ev.fixed || (interactive && hovered)) && (interactive ? (
@@ -167,7 +177,7 @@ export default function EventChip({
         );
         const time = ev.durationMin >= 25 && !compact && (
           <div className="mono" style={{ fontSize: 10, color: c.text, opacity: .62, marginTop: tall ? 3 : 2, lineHeight: 1 }}>
-            {fmtTime(ev.startMin)}-{fmtTime(ev.startMin + ev.durationMin)}
+            {fmtTime(ev.startMin)}-{fmtTime(ev.startMin + ev.durationMin)}{night && <span title="Placed in protected sleep hours on purpose" style={{ marginLeft: 5, fontFamily: 'var(--display)', opacity: 1, color: '#8C4A33' }}>sleep time</span>}
           </div>
         );
         if (tall) {
