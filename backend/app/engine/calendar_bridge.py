@@ -17,6 +17,7 @@ from typing import Any
 
 import dataclasses
 
+from app.engine import importance
 from app.engine.scheduler import DAYS_IN_WEEK, MAX_DAYS, _required_minutes, plan_sessions, schedule
 from app.models import Category, EffortTier, Profile, Task, TimeBlock
 
@@ -85,6 +86,7 @@ def _task_from_event(e: dict[str, Any], pos: dict[str, tuple[int, int, int]]) ->
         best_done_by_iso=e.get("best_done_by_iso") or None,
         non_negotiable=bool(e.get("non_negotiable")),
         must_split=bool(e.get("span_days")),
+        user_priority=importance.user_priority(e),
         prefer_day=d, prefer_start_min=s,
     )
 
@@ -116,7 +118,7 @@ def _fill_sessions(subs: list[dict[str, Any]], lens: list[int]) -> list[list[dic
     return out
 
 
-def reschedule_events(
+def _reschedule_once(
     events: list[dict[str, Any]],
     pinned_ids: list[str],
     profile: Profile,
@@ -178,7 +180,7 @@ def reschedule_events(
     }
 
     def locked(e: dict[str, Any]) -> bool:
-        return (e.get("fixed", False) or (e["id"] in pinned and e["id"] not in split_ids)
+        return (e.get("fixed", False) or bool(e.get("crunch")) or (e["id"] in pinned and e["id"] not in split_ids)
                 or pos[e["id"]][0] < start_day)
 
     flexible = [e for e in events if e["id"] in pos and not locked(e)]
@@ -227,6 +229,27 @@ def reschedule_events(
                     end_by[pid] = min(end_by.get(pid, limit), limit)
                     stack.append((pid, limit - _required_minutes(base_tasks[pid], profile, False)))
 
+    # A block that stays where it is must still come after what it waits for. If something it waits for is being re-placed (it sat in
+    # a window the user cleared, or was displaced), that prerequisite must finish before the block starts, on any day of the week
+    # that has not passed. Without this ceiling the engine put the prerequisite at the first free slot near its old place, which
+    # could be after the dependent, and the move was reported as "couldn't fit cleanly" although earlier days had room.
+    for e in events:
+        if e["id"] not in pos or e["id"] in movable_ids:
+            continue
+        d0, s0, _ = pos[e["id"]]
+        stack = [(e["id"], d0 * 1440 + s0)]
+        seen: set[str] = set()
+        while stack:
+            q, limit = stack.pop()
+            if q in seen:
+                continue
+            seen.add(q)
+            for pid in by_id[q].get("prereq_ids", []):
+                if pid not in pos or pid not in movable_ids:
+                    continue
+                end_by[pid] = min(end_by.get(pid, limit), limit)
+                stack.append((pid, limit - _required_minutes(_task_from_event(by_id[pid], pos), profile, False)))
+
     kept = [e for e in events if e["id"] in pos and e["id"] not in movable_ids]
 
     # a reserved window is cleared for certain events *and everything they wait for*; nothing else may use it
@@ -267,7 +290,7 @@ def reschedule_events(
     plan = schedule(
         tasks, work_profile, deadline_day=n_days - 1,
         start_day=start_day, now_min=eff_now, week_start=week_start,
-        allow_split=False, allow_overpack=False, apply_cap=False,
+        allow_split=False, allow_overpack=False, allow_tight=True, apply_cap=False,
         anchored_end=anchored, focus_split_ids=split_ids,
     ) if tasks else None
 
@@ -375,3 +398,102 @@ def reschedule_events(
 
 def session_ids(sessions_of: dict[str, list[tuple[str, int]]]) -> set[str]:
     return {sid for sess in sessions_of.values() for sid, _ in sess}
+
+
+def _is_hard(e: dict[str, Any]) -> bool:
+    return bool(e.get("deadline_iso")) and e.get("hard_deadline", True) is not False
+
+
+def _reschedule_crunch(events, pinned_ids, profile, week_days, **kw):
+    """Same as _reschedule_once, plus the crunch fallback.
+
+    Sleep hours are protected: the engine never plans into them. The one exception is a hard deadline that cannot
+    otherwise be met (10 hours of work still to do, due in 12 hours). Then, and only then, the work that did not fit is
+    tried again with the day stretched first into the late evening and then into the early morning, and anything placed
+    out of the normal hours is flagged `crunch` so the page can say so. A person can also drag anything into those hours
+    by hand; a `crunch` event is left where it is by later reschedules."""
+    res = _reschedule_once(events, pinned_ids, profile, week_days, **kw)
+    by_id = {e["id"]: e for e in res["events"]}
+    bad = {v["id"] for v in res["order_violations"]}
+    pinned = set(pinned_ids)
+    unfit = [i for i in res["conflicts"]
+             if i in by_id and i not in bad and i not in pinned and not by_id[i].get("fixed") and not by_id[i].get("crunch") and _is_hard(by_id[i])]
+    if not unfit:
+        return res
+    tiers = [(profile.day_start_min, 24 * 60), (0, 24 * 60)]
+    for lo, hi in tiers:
+        if (lo, hi) == (profile.day_start_min, profile.day_end_min):
+            continue
+        wide = Profile.from_dict(profile.to_dict())
+        wide.day_start_min, wide.day_end_min = lo, hi
+        keep = [e["id"] for e in res["events"] if e["id"] not in unfit]
+        kw2 = {k: v for k, v in kw.items() if k not in ("mode", "plan_ids")}
+        # out of hours there is no "peak window" to honour: the rush job goes wherever it can
+        relaxed = [{**e, "effort_tier": "med"} if e["id"] in unfit else e for e in res["events"]]
+        retry = _reschedule_once(relaxed, keep, wide, week_days, mode="full", plan_ids=[], **kw2)
+        got = {e["id"]: e for e in retry["events"]}
+        if any(i in retry["conflicts"] for i in unfit):
+            continue                      # still not enough: try the next, wider tier
+        out = []
+        named = []
+        for e in retry["events"]:
+            if e["id"] in unfit:
+                if "effort_tier" in by_id[e["id"]]:
+                    e = {**e, "effort_tier": by_id[e["id"]]["effort_tier"]}
+                else:
+                    e = {k: v for k, v in e.items() if k != "effort_tier"}
+                outside = e["startMin"] < profile.day_start_min or e["startMin"] + e["durationMin"] > profile.day_end_min
+                if outside:
+                    e = {**e, "crunch": True}
+                    named.append(e["title"])
+            out.append(e)
+        note = ""
+        if named:
+            note = ("Sleep time is protected, but " + ", ".join(f'"{t}"' for t in named)
+                    + " has a hard deadline that nothing else could meet, so it was placed in your sleep hours. Move it if you can.")
+        explanation = (res["explanation"] + " " + note).strip()
+        return {"events": out, "conflicts": [c for c in res["conflicts"] if c not in unfit], "moved": res["moved"] + [i for i in unfit if i not in res["moved"]],
+                "explanation": explanation, "order_violations": res["order_violations"]}
+    return res
+
+
+def reschedule_events(events, pinned_ids, profile, week_days, **kw):
+    """The scheduler's answer, plus `decisions`: questions the user has to answer because the engine will not guess them
+    (see importance_decisions)."""
+    res = _reschedule_crunch(events, pinned_ids, profile, week_days, **kw)
+    res["decisions"] = importance_decisions(res["events"], res["conflicts"], week_days, kw.get("week_start"))
+    return res
+
+
+def importance_decisions(events: list[dict[str, Any]], conflicts: list[str], week_days: list[int], week_start: date | None) -> list[dict[str, Any]]:
+    """A task the user marked low importance has a hard deadline it cannot meet, while something they marked important sits in
+    the time before that deadline. Which one gives way is the user's call, not the scheduler's: it returns the pair as a question.
+    A task the user already answered for (`yielded`) is not asked about again."""
+    if not week_start:
+        return []
+    by_id = {e["id"]: e for e in events}
+    day_idx = {n: i for i, n in enumerate(week_days)}
+    out: list[dict[str, Any]] = []
+    for cid in conflicts:
+        low = by_id.get(cid)
+        if not low or low.get("fixed") or low.get("yielded") or not low.get("deadline_iso") or low.get("hard_deadline", True) is False:
+            continue
+        if not importance.is_low(low):
+            continue
+        try:
+            limit = (date.fromisoformat(low["deadline_iso"][:10]) - week_start).days
+        except ValueError:
+            continue
+        rivals = [e for e in events if e["id"] != cid and not e.get("fixed") and e["id"] not in conflicts and importance.is_important(e)
+                  and e["day"] in day_idx and day_idx[e["day"]] <= limit and not e.get("done")
+                  and not (e.get("deadline_iso") and e.get("hard_deadline", True) and e["deadline_iso"][:10] <= low["deadline_iso"][:10])]
+        if not rivals:
+            continue
+        high = sorted(rivals, key=lambda e: (importance.value(e), -e["durationMin"]))[0]
+        out.append({
+            "low": {"id": low["id"], "title": low["title"], "deadline_iso": low["deadline_iso"][:10], "importance": importance.label(low)},
+            "high": {"id": high["id"], "title": high["title"], "importance": importance.label(high)},
+            "question": f"“{low['title']}” is due {low['deadline_iso'][:10]} but you marked it {importance.LABELS[low['importance_cat']].lower()}, and there is no room for it "
+                        f"unless “{high['title']}”, which you marked important, gives way. Which matters more?",
+        })
+    return out

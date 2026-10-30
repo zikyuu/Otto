@@ -279,6 +279,7 @@ def _last_allowed_day(task: Task, last_day: int, week_start: date | None) -> int
 #   importance  task importance relative to the most important task in this run
 # Ties go to the user's rank (PriorityWindow / user_rank, 1 = first), then value density (importance / minutes).
 W_URGENCY, W_FIXED, W_BLOCKER, W_IMPORTANCE = 0.4, 0.3, 0.2, 0.1
+W_USER = 0.3            # the user's own importance cards: adds up to +0.15 for the most important, takes up to 0.15 off the least; nothing when unsorted
 SOFT_URGENCY_SCALE = 0.5
 BLOCKER_CAP = 3
 
@@ -322,7 +323,8 @@ def _priority_score(task: Task, deadline_day: int, first_day: int = 0,
     return (W_URGENCY * _urgency(task, first_day, week_start)
             + W_FIXED * (1.0 if task.fixed else 0.0)
             + W_BLOCKER * min(blockers, BLOCKER_CAP) / BLOCKER_CAP
-            + W_IMPORTANCE * importance)
+            + W_IMPORTANCE * importance
+            + (W_USER * (task.user_priority - 0.5) if task.user_priority is not None else 0.0))
 
 
 def _priority_key(task: Task, deadline_day: int, first_day: int, week_start: date | None,
@@ -566,6 +568,7 @@ def schedule(tasks: list[Task], profile: Profile, deadline_day: int,
              allow_split: bool = True,
              allow_overpack: bool = True,
              allow_displace: bool = True,
+             allow_tight: bool = False,
              apply_cap: bool = True,
              anchored_end: dict[str, tuple[int, int]] | None = None,
              focus_split_ids: set[str] | None = None) -> Plan:
@@ -578,6 +581,8 @@ def schedule(tasks: list[Task], profile: Profile, deadline_day: int,
     allow_split / allow_overpack   disable for callers (the calendar) that need
                   every task to stay one whole block.
     allow_displace  let a non-negotiable task with no slot bump a lower-priority one.
+    allow_tight   when a task finds no slot with its pace buffer and ramp-up included, try again with just the length it was
+                  planned at (the block the person sees), and mark it tight. A 60-minute block fits a 75-minute gap.
     apply_cap     cap each day's load at free_hours_per_day × planning_bias.
                   The calendar disables this: events already on it ARE the load.
     anchored_end  {task_id: (day, end_min)} for prerequisites that already sit at a
@@ -702,7 +707,7 @@ def schedule(tasks: list[Task], profile: Profile, deadline_day: int,
         placed_end[t.id] = max((b.day, b.end_min) for b in new_blocks)
         reserve_after(t, new_blocks)
 
-    def place_clean(t: Task, last_allowed: int, minutes: int) -> bool:
+    def place_clean(t: Task, last_allowed: int, minutes: int, tight: bool = False) -> bool:
         for d in days_for(t, last_allowed):
             floor = _prereq_floor(t, d, placed_end)
             if floor is None:
@@ -724,7 +729,7 @@ def schedule(tasks: list[Task], profile: Profile, deadline_day: int,
                 i, start = min(options, key=lambda o: o[1])
             _take(day_free, d, i, start, minutes)
             commit(t, [Block(day=d, start_min=start, end_min=start + minutes,
-                             task_id=t.id, lite=downscope)])
+                             task_id=t.id, lite=downscope, overpacked=tight)])
             return True
         return False
 
@@ -801,6 +806,11 @@ def schedule(tasks: list[Task], profile: Profile, deadline_day: int,
                     commit(t, split)
                     progress = True
                     continue
+
+            # --- pass 2b: no room for the pace buffer, but the block as planned fits: place it tight ---
+            if allow_tight and _base_minutes(t, downscope) < minutes and place_clean(t, last_allowed, _base_minutes(t, downscope), tight=True):
+                progress = True
+                continue
 
             # --- pass 3: overpack — only if tight deadline, no better fit ---
             if allow_overpack and t.end_by is None and _has_tight_deadline(t, first_day, last_allowed, profile):

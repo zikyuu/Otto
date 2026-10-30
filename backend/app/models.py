@@ -215,6 +215,10 @@ class Profile:
     # from weekly mascot chat — highest priority, overrides all derived signals
     stated_rules: list[str] = field(default_factory=list)
 
+    # ISO dates on which the user opened the app 2h+ after the first planned event (oversleep / late start)
+    late_starts: list[str] = field(default_factory=list)
+    late_log: list[dict] = field(default_factory=list)      # {d: date, planned: first planned start (min), opened: when the app was opened (min)}
+
     def has_skill(self, name: str, min_prof: int = 2) -> bool:
         return any(
             s.name.lower() == name.lower() and s.proficiency >= min_prof
@@ -251,6 +255,8 @@ class Profile:
             "energy_logs": [asdict(e) for e in self.energy_logs],
             "reflections": [{**asdict(r), "choice": r.choice.value} for r in self.reflections],
             "off_track_logs": [asdict(o) for o in self.off_track_logs],
+            "late_starts": list(self.late_starts),
+            "late_log": [dict(x) for x in self.late_log],
         }
 
     @classmethod
@@ -291,6 +297,8 @@ class Profile:
             for r in d.get("reflections", [])
         ]
         p.off_track_logs = [OffTrackLog(**o) for o in d.get("off_track_logs", [])]
+        p.late_starts = [str(x) for x in d.get("late_starts", [])]
+        p.late_log = [x for x in d.get("late_log", []) if isinstance(x, dict) and {"d", "planned", "opened"} <= set(x)]
         return p
 
 
@@ -379,6 +387,7 @@ class Task:
     keep_out: list[tuple[int, int, int]] = field(default_factory=list)   # (day, start, end) slots this task may not use (time reserved for something else)
     end_by: int | None = None     # latest finish, as absolute minutes from the start of day 0 (day*1440 + minute). Used to pull a prerequisite in front of something that has to wait for it.
     user_rank: int | None = None  # user-specified rank for this task, used in priority windows
+    user_priority: float | None = None   # 0..1 from the importance cards (engine/importance.py); None = the user has not sorted it
     # state
     status: Status = Status.TODO
     carried_forward: bool = False  # True = moved from a previously missed day
@@ -491,6 +500,7 @@ class EnergyLog:
     ts: str     # ISO datetime — "2026-07-29T09:30"
     level: int  # 1=drained · 2=tired · 3=neutral · 4=in the zone · 5=energised
     after_meeting_min: int | None = None  # minutes since a meeting/social event ended, if one just did — teaches recovery_after_meeting
+    after_hard_min: int | None = None     # minutes since a long deep-work block ended, if one just did — recovery after hard tasks
 
 
 @dataclass
@@ -516,6 +526,8 @@ class TaskReflection:
     planned_minutes: int
     actual_minutes: int       # captured from the drag
     category: str = "deep_work"  # passed by API from task — tells learning.py which velocity bucket to update
+    days_to_deadline: int | None = None   # the task's hard-or-soft deadline, in days from the day it was done (deadline-pressure pattern)
+    prev_category: str | None = None      # what kind of work the block before it was, same day (task-switching pattern)
 
 
 @dataclass
