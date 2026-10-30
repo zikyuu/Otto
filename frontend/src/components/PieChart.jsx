@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 
 // Earthy, distinct, readable on parchment
-export const SLICE_COLORS = ['#4C7656', '#C08A2B', '#5B7F8F', '#BC6A47', '#8C6FA0', '#7C9A3F', '#5F6FA8', '#8C876B'];
+export const SLICE_COLORS = ['#4E5C36', '#8A6A2F', '#5B7F8F', '#C4866D', '#8C6FA0', '#7C9A3F', '#5F6FA8', '#8F8F78'];
 
 // A ring, not a pie: drag any slice around the ring to change its share. `center` = { top, bottom } label.
 export default function PieChart({ slices, onDrag, size = 110, center }) {
@@ -45,7 +45,7 @@ export default function PieChart({ slices, onDrag, size = 110, center }) {
     <svg ref={svgRef} width={size} height={size} role="img" aria-label="Share of the block for each step" onPointerMove={onPointerMove} onPointerUp={end} onPointerCancel={end}
       style={{ flexShrink: 0, display: 'block', overflow: 'visible' }}>
       {arcs.map(a => (
-        <path key={a.i} d={ring(a.a0, a.a1)} fill={a.color} stroke="var(--surface-2, #F0EAD6)" strokeWidth={3} strokeLinejoin="round"
+        <path key={a.i} d={ring(a.a0, a.a1)} fill={a.color} stroke="var(--surface-2, #F6EFE0)" strokeWidth={3} strokeLinejoin="round"
           onPointerDown={e => onPointerDown(e, a.i)} style={{ cursor: 'grab', transition: 'opacity .3s var(--ease)' }}
           onPointerEnter={e => { e.currentTarget.style.opacity = .86; }} onPointerLeave={e => { e.currentTarget.style.opacity = 1; }} />
       ))}

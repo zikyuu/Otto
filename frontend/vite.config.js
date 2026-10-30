@@ -6,7 +6,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.OTTO_API || 'http://127.0.0.1:8000',      // OTTO_API: point at a backend on another port
         changeOrigin: true,
         // When the backend isn't running, say so instead of a bare "500".
         configure: proxy => {

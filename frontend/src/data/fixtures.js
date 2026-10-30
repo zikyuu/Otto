@@ -1,3 +1,4 @@
+import { dayNum } from '../views/calendar/calendarUtils.js';
 export const NOW_TASKS = [
   { k: 'n0', t: 'Add embeddings + vector search (pgvector)', meta: '45 min · Ship a RAG app', done: false, star: true },
   { k: 'n1', t: 'Daily LeetCode — 1 medium', meta: '20 min · Finish Blind 75', done: false, star: false },
@@ -94,26 +95,26 @@ export const GOALS = [
 
 // ---------------------------------------------------------------------------
 // Category colour system — each category has a distinct colour so the
-// calendar is scannable at a glance. Locked/flexible is shown as a 🔒 icon,
+// calendar is scannable at a glance. Locked/flexible is shown as a lock icon,
 // NOT via colour. Add new categories here and they automatically get picked
 // up across the whole calendar.
 // ---------------------------------------------------------------------------
 export const CATEGORY_COLORS = {
-  'llm':           { bg:'#E1E9EA', accent:'#5B7F8F', text:'#33505D', label:'LLM / RAG'     },
-  'leetcode':      { bg:'#E0EBD6', accent:'#5E8A4E', text:'#385A2C', label:'LeetCode'       },
-  'interview':     { bg:'#F1DCCF', accent:'#BC6A47', text:'#7A381D', label:'Interview'       },
-  'gym':           { bg:'#F4E3C3', accent:'#C08A2B', text:'#734D0E', label:'Gym / Health'   },
-  'social':        { bg:'#F4EBB9', accent:'#A98F1C', text:'#645406', label:'Social'         },
-  'leisure':       { bg:'#E8DFEC', accent:'#8C6FA0', text:'#563D69', label:'Leisure'        },
-  'system-design': { bg:'#DCE2EE', accent:'#5F6FA8', text:'#374479', label:'System Design'  },
-  'admin':         { bg:'#EAE4D0', accent:'#8C876B', text:'#4C4834', label:'Admin'          },
-  'life':          { bg:'#F4E3C3', accent:'#C08A2B', text:'#734D0E', label:'Life'           },
-  'deep_work':     { bg:'#E1E9EA', accent:'#5B7F8F', text:'#33505D', label:'Deep Work'      },
-  'deep work':     { bg:'#E1E9EA', accent:'#5B7F8F', text:'#33505D', label:'Deep Work'      },
+  'llm':           { bg:'#DCE7E2', accent:'#5B8C86', text:'#2F5A55', label:'LLM / RAG'     },
+  'leetcode':      { bg:'#E2E9CF', accent:'#6A784D', text:'#3F4C28', label:'LeetCode'       },
+  'interview':     { bg:'#F3DDD2', accent:'#C4866D', text:'#8C4A33', label:'Interview'       },
+  'gym':           { bg:'#F3E6C8', accent:'#C9A66B', text:'#7A5A1E', label:'Gym / Health'   },
+  'social':        { bg:'#F6E0CF', accent:'#D49A6A', text:'#8A501F', label:'Social'         },
+  'leisure':       { bg:'#E9DFEA', accent:'#9A7BA3', text:'#5B4063', label:'Leisure'        },
+  'system-design': { bg:'#DDE3EC', accent:'#6F82A8', text:'#3A4C75', label:'System Design'  },
+  'admin':         { bg:'#EAE3D0', accent:'#9A946F', text:'#55512F', label:'Admin'          },
+  'life':          { bg:'#EFE3C9', accent:'#B59B66', text:'#6B5522', label:'Life'           },
+  'deep_work':     { bg:'#DCE7E2', accent:'#5B8C86', text:'#2F5A55', label:'Deep Work'      },
+  'deep work':     { bg:'#DCE7E2', accent:'#5B8C86', text:'#2F5A55', label:'Deep Work'      },
 };
 
 // Fallback for unknown categories
-export const DEFAULT_CAT_COLOR = { bg:'#EAE4D0', accent:'#8C876B', text:'#4C4834', label:'Other' };
+export const DEFAULT_CAT_COLOR = { bg:'#EAE3D0', accent:'#9A946F', text:'#55512F', label:'Other' };
 
 // ---------------------------------------------------------------------------
 // Calendar events
@@ -160,9 +161,9 @@ const RAW_EVENTS = [
   { id:'e15', title:'Week review + next plan',      day:10, startMin:16*60,    durationMin:30, category:'admin',         fixed:false },
 ];
 
-// The mock week is re-dated onto the current week (Mon = fixture day 4) so the calendar opens on something real.
-// Late in the week (Fri-Sun) most of it would already be over, so the demo week is next week's.
-export const DEMO_WEEK_OFFSET = (() => { const d = new Date().getDay(); return d === 0 || d >= 5 ? 1 : 0; })();
+// The mock week is re-dated onto the current week (Mon = fixture day 4) so a first run opens on something real. Events carry real
+// day numbers (see calendarUtils.dayNum), so this only seeds the first run: after that the calendar is whatever was saved.
+export const DEMO_WEEK_OFFSET = 0;
 function currentWeekEvents(raw) {
   const t = new Date();
   const monday = new Date(t.getFullYear(), t.getMonth(), t.getDate() - ((t.getDay() + 6) % 7) + 7 * DEMO_WEEK_OFFSET);
@@ -170,7 +171,7 @@ function currentWeekEvents(raw) {
   const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   // deadline_in_days: a deadline that many days after the event's own date, so the demo never goes stale
   return raw.map(({ deadline_in_days, ...e }) => ({
-    ...e, day: at(e.day - 4).getDate(),
+    ...e, day: dayNum(at(e.day - 4)),
     ...(deadline_in_days != null ? { deadline_iso: iso(at(e.day - 4 + deadline_in_days)), hard_deadline: true } : {}),
   }));
 }

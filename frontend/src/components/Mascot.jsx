@@ -9,7 +9,7 @@ export default function Mascot({ art: name, size = 96, zoom = 3.2, alt = '', sty
   const box = { width: size, height: size, position: 'relative', flexShrink: 0, ...style };
   const bob = float ? { animation: 'bob 5s var(--ease) infinite' } : null;
   if (!a.placeholder) {
-    return <img src={a.src} alt={alt} draggable={false} className={className} style={{ ...box, objectFit: 'contain', filter: 'drop-shadow(0 8px 10px rgba(30,45,34,.22))', ...bob }} />;
+    return <img src={a.src} alt={alt} draggable={false} className={className} style={{ ...box, objectFit: 'contain', ...bob }} />;
   }
   const w = size * zoom;
   return (
@@ -17,7 +17,7 @@ export default function Mascot({ art: name, size = 96, zoom = 3.2, alt = '', sty
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
         <img src={a.src} alt={alt} draggable={false} style={{
           position: 'absolute', left: '50%', top: '50%', width: w, height: (w * 9) / 16, maxWidth: 'none',
-          transform: 'translate(-50%, -50%)', filter: 'drop-shadow(0 6px 8px rgba(0,0,0,.25))',
+          transform: 'translate(-50%, -50%)',
         }} />
       </div>
     </div>

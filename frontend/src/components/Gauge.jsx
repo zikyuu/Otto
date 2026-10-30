@@ -25,14 +25,14 @@ export default function Gauge({ value, onChange, planned, color = 'var(--accent)
       }}
       style={{ position: 'relative', height: 22, display: 'flex', alignItems: 'center', cursor: disabled ? 'default' : 'ew-resize', touchAction: 'none', outline: 'none' }}
     >
-      <div style={{ position: 'absolute', left: 0, right: 0, height: 8, borderRadius: 999, background: 'rgba(46,74,56,.1)', boxShadow: 'inset 0 1px 2px rgba(46,58,38,.12)' }} />
+      <div style={{ position: 'absolute', left: 0, right: 0, height: 8, borderRadius: 999, background: 'rgba(32,40,8,.1)', boxShadow: 'none' }} />
       {planned != null && (
-        <div style={{ position: 'absolute', left: 0, width: `${planned}%`, height: 8, borderRadius: 999, background: 'rgba(46,74,56,.14)', boxShadow: `inset 0 0 0 1.5px ${color}55` }} />
+        <div style={{ position: 'absolute', left: 0, width: `${planned}%`, height: 8, borderRadius: 999, background: 'rgba(32,40,8,.14)', boxShadow: `inset 0 0 0 1.5px ${color}55` }} />
       )}
-      <div style={{ position: 'absolute', left: 0, width: `${value}%`, height: 8, borderRadius: 999, background: short ? 'var(--amber-deep, #B98532)' : color, transition: 'width .35s var(--ease), background .3s var(--ease)' }} />
+      <div style={{ position: 'absolute', left: 0, width: `${value}%`, height: 8, borderRadius: 999, background: short ? 'var(--amber-deep, #8A6A2F)' : color, transition: 'width .35s var(--ease), background .3s var(--ease)' }} />
       {planned != null && <div aria-hidden title={`Planned ${planned}%`} style={{ position: 'absolute', left: `${planned}%`, top: 2, bottom: 2, width: 2, marginLeft: -1, borderRadius: 2, background: 'var(--ink)', opacity: .55 }} />}
       {!disabled && (
-        <div aria-hidden style={{ position: 'absolute', left: `${value}%`, width: 16, height: 16, marginLeft: -8, borderRadius: '50%', background: 'var(--surface)', boxShadow: `0 0 0 2px ${short ? 'var(--amber-deep, #B98532)' : color}, 0 4px 8px -3px rgba(46,58,38,.5)`, transition: 'left .35s var(--ease)' }} />
+        <div aria-hidden style={{ position: 'absolute', left: `${value}%`, width: 16, height: 16, marginLeft: -8, borderRadius: '50%', background: 'var(--surface)', boxShadow: `0 0 0 2px ${short ? 'var(--amber-deep, #8A6A2F)' : color}, 0 4px 8px -3px rgba(32,40,8,.5)`, transition: 'left .35s var(--ease)' }} />
       )}
     </div>
   );
