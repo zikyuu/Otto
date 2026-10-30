@@ -225,3 +225,7 @@ node_modules/
 
 # learned user profile (personal data)
 backend/data/
+
+# generated screenshots and GIFs for the write-up (host these on the personal site instead)
+docs/screenshots/
+docs/gifs/
